@@ -1,0 +1,377 @@
+import { App, BasesEntry, BasesPropertyId, EventRef, TFolder, getIcon, setIcon } from 'obsidian';
+import { COLOR_PACKS, ColorPackId, isCssColor, normalizeColor, stableColor } from '../table-colors/palettes';
+
+export type CollectionColorMode = 'none' | 'property' | 'automatic' | 'property-auto';
+export type AutomaticColorSource = 'title' | 'folder' | 'property';
+export type FolderIconSource = 'none' | 'rules' | 'notebook-navigator';
+
+export interface CollectionAppearanceConfig {
+	colorMode: CollectionColorMode;
+	colorProperty: BasesPropertyId | null;
+	automaticColorSource: AutomaticColorSource;
+	automaticColorProperty: BasesPropertyId | null;
+	colorPack: ColorPackId;
+	customColors: string[];
+	showIcons: boolean;
+	iconProperty: BasesPropertyId | null;
+	folderIconSource: FolderIconSource;
+	folderIconRules: Map<string, string>;
+	inheritFolderIcons: boolean;
+}
+
+interface FolderMetadata {
+	icon?: string;
+}
+
+interface NotebookNavigatorApi {
+	isStorageReady(): boolean;
+	metadata: {
+		getFolderMeta(folder: TFolder): FolderMetadata | null;
+	};
+	on(event: 'folder-changed' | 'storage-ready', callback: () => void): EventRef;
+	off(ref: EventRef): void;
+}
+
+interface NotebookNavigatorPlugin {
+	api?: NotebookNavigatorApi | null;
+	settings?: {
+		folderIcons?: Record<string, string | undefined>;
+		interfaceIcons?: Record<string, string | undefined>;
+	};
+}
+
+interface AppWithPlugins extends App {
+	appId?: string;
+	plugins?: {
+		plugins?: Record<string, NotebookNavigatorPlugin | undefined>;
+	};
+}
+
+interface ExternalIconDescriptor {
+	provider: string;
+	identifier: string;
+	cssClass: string;
+}
+
+interface IconAssetRecord {
+	metadata?: unknown;
+}
+
+const notebookNavigatorRootIcons = new WeakMap<NotebookNavigatorApi, string>();
+const notebookNavigatorFolderIcons = new WeakMap<NotebookNavigatorApi, Record<string, string | undefined>>();
+const externalIconMetadata = new Map<string, Promise<Map<string, string>>>();
+
+export function getNotebookNavigatorApi(app: App): NotebookNavigatorApi | null {
+	const plugin = (app as AppWithPlugins).plugins?.plugins?.['notebook-navigator'];
+	const candidate = plugin?.api;
+	if (!candidate || typeof candidate.isStorageReady !== 'function') return null;
+	if (!candidate.metadata || typeof candidate.metadata.getFolderMeta !== 'function') return null;
+	if (plugin.settings?.folderIcons) notebookNavigatorFolderIcons.set(candidate, plugin.settings.folderIcons);
+	else notebookNavigatorFolderIcons.delete(candidate);
+	const rootIcon = plugin.settings?.folderIcons?.['/']?.trim()
+		|| plugin.settings?.interfaceIcons?.['nav-folder-root']?.trim();
+	if (rootIcon) notebookNavigatorRootIcons.set(candidate, rootIcon);
+	else notebookNavigatorRootIcons.delete(candidate);
+	return candidate;
+}
+
+export function parseFolderIconRules(values: unknown): Map<string, string> {
+	const rules = new Map<string, string>();
+	if (!Array.isArray(values)) return rules;
+	for (const value of values) {
+		if (typeof value !== 'string') continue;
+		const separator = value.indexOf('=');
+		if (separator < 0) continue;
+		const path = normalizeFolderPath(value.slice(0, separator));
+		const icon = value.slice(separator + 1).trim();
+		if (icon) rules.set(path, icon);
+	}
+	return rules;
+}
+
+export function normalizeFolderPath(value: string): string {
+	const normalized = value.trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+	return normalized === '.' || normalized === '/' ? '' : normalized;
+}
+
+export function resolveCardColor(
+	entry: BasesEntry,
+	config: CollectionAppearanceConfig,
+	title: string,
+	app?: App,
+): string | null {
+	if (config.colorMode === 'none') return null;
+	if (config.colorMode === 'property' || config.colorMode === 'property-auto') {
+		const basesValue = config.colorProperty ? entry.getValue(config.colorProperty) : null;
+		const frontmatterValue = config.colorProperty && app
+			? rawFrontmatterValue(app, entry, config.colorProperty)
+			: null;
+		for (const candidate of [basesValue, frontmatterValue]) {
+			const normalized = normalizeColor(candidate);
+			if (normalized && isCssColor(normalized)) return normalized;
+		}
+		if (config.colorMode === 'property') return null;
+	}
+
+	return stableColor(automaticColorSeed(entry, config, title), automaticColorPalette(config));
+}
+
+export function automaticColorPalette(config: CollectionAppearanceConfig): string[] {
+	return config.colorPack === 'custom'
+		? config.customColors.filter(isCssColor)
+		: COLOR_PACKS[config.colorPack];
+}
+
+export function automaticColorSeed(
+	entry: BasesEntry,
+	config: CollectionAppearanceConfig,
+	title: string,
+): string {
+	if (config.automaticColorSource === 'folder') return entry.file.parent?.path || 'Vault';
+	if (config.automaticColorSource === 'property') {
+		return config.automaticColorProperty ? scalarValue(entry, config.automaticColorProperty) : '';
+	}
+	return title;
+}
+
+export function resolveCardIcon(
+	entry: BasesEntry,
+	config: CollectionAppearanceConfig,
+	notebookNavigator: NotebookNavigatorApi | null,
+): string | null {
+	if (!config.showIcons) return null;
+	const noteIcon = config.iconProperty ? scalarValue(entry, config.iconProperty) : '';
+	if (noteIcon) return noteIcon;
+	if (config.folderIconSource === 'none') return null;
+	const noteFolder = entry.file.parent;
+
+	for (const folder of folderCandidates(noteFolder, config.inheritFolderIcons)) {
+		if (config.folderIconSource === 'rules') {
+			const icon = config.folderIconRules.get(normalizeFolderPath(folder.path));
+			if (icon) return icon;
+		}
+		if (config.folderIconSource === 'notebook-navigator' && notebookNavigator) {
+			if (notebookNavigator.isStorageReady()) {
+				// Metadata is assigned per folder. Walk the real TFolder parent chain so
+				// an unstyled subfolder inherits the closest icon above it.
+				try {
+					const icon = notebookNavigator.metadata.getFolderMeta(folder)?.icon?.trim();
+					if (icon) return icon;
+				} catch {
+					// A stale folder object must not stop the rest of the card from rendering.
+				}
+			}
+			// The public metadata API is unavailable during Notebook Navigator's
+			// storage bootstrap. Its loaded settings are sufficient for direct folder
+			// assignments and prevent large vaults from showing temporary folder icons.
+			const folderIcons = notebookNavigatorFolderIcons.get(notebookNavigator);
+			const settingsIcon = folderIcons?.[folder.path || '/']?.trim();
+			if (settingsIcon) return settingsIcon;
+		}
+	}
+
+	// Notebook Navigator does not expose its configurable interface icons through
+	// the metadata API. Use the matching Obsidian defaults at the end of the chain
+	// instead of leaving an empty preview/icon slot.
+	if (config.folderIconSource === 'notebook-navigator') {
+		const rootIcon = notebookNavigator ? notebookNavigatorRootIcons.get(notebookNavigator) : null;
+		return rootIcon || defaultFolderIcon(noteFolder);
+	}
+	return null;
+}
+
+export function renderCollectionIcon(container: HTMLElement, rawIcon: string, app: App): void {
+	const icon = rawIcon.trim();
+	if (!icon) return;
+	const emoji = icon.startsWith('emoji:') ? icon.slice(6) : icon;
+	if (containsNonAscii(emoji)) {
+		container.setText(emoji);
+		container.addClass('is-emoji');
+		return;
+	}
+
+	const lucideName = icon.replace(/^lucide[:-]/, '');
+	const svg = getIcon(lucideName);
+	if (svg) {
+		setIcon(container, lucideName);
+		return;
+	}
+
+	const externalIcon = parseExternalIcon(icon);
+	if (externalIcon) {
+		// The public API returns portable provider-prefixed ids but does not expose
+		// its renderer. Read the already-installed local pack metadata and use the
+		// font Notebook Navigator has loaded; never download an icon from a view.
+		setIcon(container, 'folder-closed');
+		void renderExternalIcon(container, externalIcon, app);
+		return;
+	}
+
+	setIcon(container, 'folder-closed');
+	container.setAttr('aria-label', icon);
+	container.setAttr('title', icon);
+}
+
+function parseExternalIcon(icon: string): ExternalIconDescriptor | null {
+	const providers: Record<string, { provider: string; cssClass: string }> = {
+		'fontawesome-solid': { provider: 'fontawesome-solid', cssClass: 'nn-iconfont-fa-solid' },
+		'rpg-awesome': { provider: 'rpg-awesome', cssClass: 'nn-iconfont-rpg-awesome' },
+		'bootstrap-icons': { provider: 'bootstrap-icons', cssClass: 'nn-iconfont-bootstrap-icons' },
+		'material-icons': { provider: 'material-icons', cssClass: 'nn-iconfont-material-icons' },
+		phosphor: { provider: 'phosphor', cssClass: 'nn-iconfont-phosphor' },
+		'simple-icons': { provider: 'simple-icons', cssClass: 'nn-iconfont-simple-icons' },
+	};
+	const prefixes: Record<string, string> = {
+		fas: 'fontawesome-solid',
+		ra: 'rpg-awesome',
+		bi: 'bootstrap-icons',
+		mi: 'material-icons',
+		ph: 'phosphor',
+		si: 'simple-icons',
+	};
+
+	const colon = icon.indexOf(':');
+	let providerId = '';
+	let identifier = '';
+	if (colon > 0) {
+		providerId = icon.slice(0, colon);
+		identifier = icon.slice(colon + 1);
+	} else {
+		const separator = icon.indexOf('-');
+		if (separator < 1) return null;
+		providerId = prefixes[icon.slice(0, separator)] ?? '';
+		identifier = icon.slice(separator + 1);
+	}
+	const provider = providers[providerId];
+	if (!provider || !identifier) return null;
+	return { ...provider, identifier };
+}
+
+async function renderExternalIcon(
+	container: HTMLElement,
+	descriptor: ExternalIconDescriptor,
+	app: App,
+): Promise<void> {
+	try {
+		const metadata = await getExternalIconMetadata(app, descriptor.provider);
+		const unicode = metadata.get(descriptor.identifier);
+		if (!unicode) return;
+		const codePoint = Number.parseInt(unicode.replace(/^0x/i, ''), 16);
+		if (!Number.isFinite(codePoint) || codePoint <= 0) return;
+		container.empty();
+		container.addClass('nn-iconfont', descriptor.cssClass);
+		container.setText(String.fromCodePoint(codePoint));
+		container.setAttr('aria-label', descriptor.identifier);
+		container.setAttr('title', descriptor.identifier);
+	} catch {
+		// Keep the Obsidian folder fallback if the optional pack disappears.
+	}
+}
+
+function getExternalIconMetadata(app: App, provider: string): Promise<Map<string, string>> {
+	const appId = (app as AppWithPlugins).appId || 'default';
+	const cacheKey = `${appId}:${provider}`;
+	let pending = externalIconMetadata.get(cacheKey);
+	if (!pending) {
+		pending = readExternalIconMetadata(appId, provider).catch((error: unknown) => {
+			externalIconMetadata.delete(cacheKey);
+			throw error;
+		});
+		externalIconMetadata.set(cacheKey, pending);
+	}
+	return pending;
+}
+
+function readExternalIconMetadata(appId: string, provider: string): Promise<Map<string, string>> {
+	return new Promise((resolve, reject) => {
+		const request = indexedDB.open(`notebooknavigator/icons/${appId}`);
+		request.onupgradeneeded = () => {
+			request.transaction?.abort();
+			reject(new Error('Notebook Navigator icon database is not installed.'));
+		};
+		request.onerror = () => reject(request.error ?? new Error('Unable to open Notebook Navigator icon database.'));
+		request.onsuccess = () => {
+			const database = request.result;
+			if (!database.objectStoreNames.contains('providers')) {
+				database.close();
+				reject(new Error('Notebook Navigator icon provider store is unavailable.'));
+				return;
+			}
+			const transaction = database.transaction('providers', 'readonly');
+			const read = transaction.objectStore('providers').get(provider);
+			read.onerror = () => reject(read.error ?? new Error('Unable to read Notebook Navigator icon metadata.'));
+			read.onsuccess = () => {
+				database.close();
+				resolve(parseIconMetadata((read.result as IconAssetRecord | undefined)?.metadata));
+			};
+		};
+	});
+}
+
+function parseIconMetadata(raw: unknown): Map<string, string> {
+	const icons = new Map<string, string>();
+	if (typeof raw !== 'string') return icons;
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(raw);
+	} catch {
+		return icons;
+	}
+	if (Array.isArray(parsed)) {
+		for (const value of parsed) addIconMetadata(icons, value);
+		return icons;
+	}
+	if (!parsed || typeof parsed !== 'object') return icons;
+	for (const [identifier, value] of Object.entries(parsed)) addIconMetadata(icons, value, identifier);
+	return icons;
+}
+
+function addIconMetadata(icons: Map<string, string>, raw: unknown, fallbackId = ''): void {
+	if (!raw || typeof raw !== 'object') return;
+	const value = raw as { id?: unknown; unicode?: unknown };
+	const identifier = typeof value.id === 'string' ? value.id : fallbackId;
+	const unicode = typeof value.unicode === 'string' || typeof value.unicode === 'number'
+		? String(value.unicode).trim()
+		: '';
+	if (identifier && unicode) icons.set(identifier, unicode);
+}
+
+function folderCandidates(folder: TFolder | null, inherit: boolean): TFolder[] {
+	if (!folder) return [];
+	if (!inherit) return [folder];
+	const folders: TFolder[] = [];
+	let current: TFolder | null = folder;
+	while (current) {
+		folders.push(current);
+		current = current.parent;
+	}
+	return folders;
+}
+
+function defaultFolderIcon(folder: TFolder | null): string {
+	return folder && normalizeFolderPath(folder.path) ? 'folder-closed' : 'vault';
+}
+
+function scalarValue(entry: BasesEntry, property: BasesPropertyId): string {
+	const raw = entry.getValue(property)?.toString().trim() ?? '';
+	if (!raw) return '';
+	const quoted = raw.match(/^['"](.*)['"]$/);
+	return (quoted?.[1] ?? raw).trim();
+}
+
+function rawFrontmatterValue(app: App, entry: BasesEntry, property: BasesPropertyId): unknown {
+	if (!property.startsWith('note.')) return null;
+	const propertyName = property.slice('note.'.length);
+	const frontmatter = app.metadataCache.getFileCache(entry.file)?.frontmatter;
+	if (!frontmatter) return null;
+	if (Object.prototype.hasOwnProperty.call(frontmatter, propertyName)) return frontmatter[propertyName];
+	const matchedKey = Object.keys(frontmatter).find((key) => key.toLocaleLowerCase() === propertyName.toLocaleLowerCase());
+	return matchedKey ? frontmatter[matchedKey] : null;
+}
+
+function containsNonAscii(value: string): boolean {
+	for (let index = 0; index < value.length; index += 1) {
+		if (value.charCodeAt(index) > 127) return true;
+	}
+	return false;
+}

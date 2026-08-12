@@ -1,0 +1,10 @@
+{
+    "id":  "more-bases-views",
+    "name":  "Views",
+    "version":  "0.10.6",
+    "minAppVersion":  "1.10.0",
+    "description":  "Theme-native layouts and visual enhancements for Obsidian Bases, including Collection, Timeline, and configurable table colors.",
+    "author":  "",
+    "authorUrl":  "",
+    "isDesktopOnly":  false
+}
