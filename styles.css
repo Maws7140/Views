@@ -1031,19 +1031,12 @@
   aspect-ratio: auto;
 }
 
-.mbv-collection:not(.is-horizontal) .mbv-card .mbv-card-body {
+.mbv-collection .mbv-card .mbv-card-body {
+  flex: 1 1 0;
+  max-height: none;
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-width: thin;
-}
-
-.mbv-collection:not(.is-horizontal) .mbv-card.has-media .mbv-card-body {
-  flex: 1 1 0;
-  max-height: none;
-}
-
-.mbv-collection.uses-independent-height:not(.is-horizontal) .mbv-card:not(.has-media) .mbv-card-body {
-  flex: 1 1 auto;
 }
 
 .mbv-collection.is-square:not(.is-horizontal) .mbv-card {
@@ -1110,9 +1103,6 @@
     font-size: var(--font-ui-smaller);
   }
 
-  .mbv-card-detail-value {
-    max-height: 4.1em;
-  }
 }
 
 @container (max-width: 180px) {

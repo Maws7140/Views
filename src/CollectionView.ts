@@ -27,7 +27,7 @@ import { renderPropertyValue } from './ui/PropertyValueRenderer';
 export const CollectionViewType = 'more-bases-collection';
 
 type CollectionLayout = 'carousel' | 'grid';
-type CardAspect = 'portrait' | 'square' | 'landscape';
+type CardAspect = 'flexible' | 'square';
 type CardDirection = 'vertical' | 'image-left' | 'image-right';
 type MediaFit = 'smart' | 'contain' | 'cover';
 type IconPlacement = 'automatic' | 'preview' | 'title';
@@ -134,9 +134,9 @@ export class CollectionView extends BasesView {
 					{
 						type: 'dropdown',
 						key: 'aspect',
-						displayName: 'Card shape',
-						default: 'landscape',
-						options: { portrait: 'Portrait', square: 'Square', landscape: 'Landscape' },
+						displayName: 'Card proportions',
+						default: 'flexible',
+						options: { flexible: 'Flexible', square: 'Square' },
 					},
 					{
 						type: 'dropdown',
@@ -325,7 +325,9 @@ export class CollectionView extends BasesView {
 			cardWidth: this.numberOption('cardWidth', 240, 48, 960),
 			gridColumns: this.numberOption('gridColumns', 4, 1, 8),
 			gap: this.numberOption('gap', 16, 4, 32),
-			aspect: aspect === 'portrait' || aspect === 'square' ? aspect : 'landscape',
+			// Existing portrait and landscape configs migrate to the same flexible
+			// width and height behavior they already shared.
+			aspect: aspect === 'square' ? 'square' : 'flexible',
 			cardDirection: this.cardDirection(cardDirection),
 			cardHeight: this.numberOption('cardHeight', 160, 48, 960),
 			mediaShare: this.numberOption('mediaShare', 50, 0, 100),
