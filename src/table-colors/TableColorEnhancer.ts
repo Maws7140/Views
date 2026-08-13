@@ -1,5 +1,5 @@
 import { Component, Menu } from 'obsidian';
-import type { ViewsPluginSettings } from '../main';
+import type { ViewsPluginSettings } from '../settings/settings';
 import { RenderScheduler } from '../performance/RenderScheduler';
 import { reportPerformance } from '../performance/metrics';
 import { applyPropertyValueColor } from '../ui/PropertyValueRenderer';

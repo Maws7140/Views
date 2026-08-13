@@ -33,6 +33,14 @@ interface VisibleRange {
   end: number;
 }
 
+interface LaneRowDom {
+  rowEl: HTMLElement;
+  headEl: HTMLElement;
+  iconEl: HTMLElement;
+  labelEl: HTMLElement;
+  trackEl: HTMLElement;
+}
+
 export interface TimelineRendererCallbacks {
   openCalendarPicker?: () => void;
   onOpenItem?: (item: TimelineItem) => void;
@@ -75,6 +83,9 @@ export class TimelineRenderer {
   private collapsedLanes = new Set<string>();
   private cachedLanes: LaneRenderData[] = [];
   private timelineWidth = 0;
+  private readonly laneRows = new Map<string, LaneRowDom>();
+  private readonly tickFormatters = new Map<string, Intl.DateTimeFormat>();
+  private lastNoDateSignature = '';
   
   private readonly dateFormatter = new Intl.DateTimeFormat(undefined, {
     month: 'short',
@@ -330,10 +341,6 @@ export class TimelineRenderer {
     range: VisibleRange,
     showWeekends: boolean
   ): void {
-      // Clear existing lane rows (except header row)
-      const rows = this.gridEl.querySelectorAll('.tl-lane-row');
-      rows.forEach(r => r.remove());
-
       const trackHeight = density === 'compact' ? 24 : 32;
       const laneGap = density === 'compact' ? 8 : 12;
       const scrollLeft = this.scrollAreaEl.scrollLeft;
@@ -343,30 +350,41 @@ export class TimelineRenderer {
       const viewportWidth = this.scrollAreaEl.clientWidth - sidebarWidth;
       
       const zoomKey = `${this.scale.pxPerDay}`;
+      const activeKeys = new Set(lanes.map((lane) => lane.key));
+      const weekendRanges = showWeekends ? this.computeWeekendRanges(range.start, range.end) : [];
+
+      for (const [key, dom] of this.laneRows) {
+          if (activeKeys.has(key)) continue;
+          dom.rowEl.remove();
+          this.laneRows.delete(key);
+      }
 
       lanes.forEach((lane, index) => {
-          const rowEl = this.gridEl.createDiv({ cls: 'tl-lane-row' });
-          if (index < lanes.length - 1) rowEl.style.marginBottom = `${laneGap}px`;
-
-          // Lane Header (Sticky Left)
-          const headEl = rowEl.createDiv({ cls: 'tl-lane-head' });
+          let dom = this.laneRows.get(lane.key);
+          if (!dom) {
+              const rowEl = this.gridEl.createDiv({ cls: 'tl-lane-row' });
+              const headEl = rowEl.createDiv({ cls: 'tl-lane-head' });
+              const iconEl = headEl.createDiv({ cls: 'tl-lane-icon' });
+              const labelEl = headEl.createDiv({ cls: 'tl-lane-label' });
+              const trackEl = rowEl.createDiv({ cls: 'tl-lane-track' });
+              headEl.addEventListener('click', () => {
+                  if (this.collapsedLanes.has(lane.key)) this.collapsedLanes.delete(lane.key);
+                  else this.collapsedLanes.add(lane.key);
+                  this.render(false);
+              });
+              dom = { rowEl, headEl, iconEl, labelEl, trackEl };
+              this.laneRows.set(lane.key, dom);
+          }
+          const { rowEl, headEl, iconEl, labelEl, trackEl } = dom;
+          this.gridEl.appendChild(rowEl);
+          rowEl.style.marginBottom = index < lanes.length - 1 ? `${laneGap}px` : '';
+          rowEl.removeClass('is-collapsed');
+          trackEl.empty();
+          trackEl.style.width = `${this.timelineWidth + PADDING_RIGHT}px`;
           const collapsed = this.collapsedLanes.has(lane.key);
           headEl.toggleClass('is-collapsed', collapsed);
-          
-          const iconEl = headEl.createDiv({ cls: 'tl-lane-icon' });
           setIcon(iconEl, collapsed ? 'lucide-chevron-right' : 'lucide-chevron-down');
-          
-          const labelEl = headEl.createDiv({ cls: 'tl-lane-label' });
           labelEl.setText(`${lane.label} (${lane.items.length})`);
-          
-          headEl.addEventListener('click', () => {
-              if (this.collapsedLanes.has(lane.key)) this.collapsedLanes.delete(lane.key); else this.collapsedLanes.add(lane.key);
-              this.render(false);
-          });
-
-          // Lane Track
-          const trackEl = rowEl.createDiv({ cls: 'tl-lane-track' });
-          trackEl.style.width = `${this.timelineWidth + PADDING_RIGHT}px`;
 
           if (collapsed) {
               rowEl.addClass('is-collapsed');
@@ -378,7 +396,7 @@ export class TimelineRenderer {
               lane.layout = this.computeLaneLayout(lane.items, zoomKey);
           }
 
-          if (showWeekends) this.renderWeekendShading(trackEl, range.start, range.end);
+          if (weekendRanges.length) this.renderWeekendShading(trackEl, weekendRanges);
 
           const visibleItems = virtualizeItems(lane.items, this.scale, scrollLeft, viewportWidth);
           this.renderLaneItems(trackEl, visibleItems, trackHeight, lane.layout);
@@ -463,9 +481,11 @@ export class TimelineRenderer {
       el.style.cursor = 'pointer';
   }
 
-  private renderWeekendShading(container: HTMLElement, rangeStart: number, rangeEnd: number): void {
+  private renderWeekendShading(
+    container: HTMLElement,
+    ranges: Array<{ start: number; end: number }>,
+  ): void {
       const track = container.createDiv({ cls: 'tl-weekend-track' });
-      const ranges = this.computeWeekendRanges(rangeStart, rangeEnd);
       for (const weekend of ranges) {
           const left = this.scale.toX(weekend.start);
           const width = this.scale.toX(weekend.end) - left;
@@ -478,6 +498,9 @@ export class TimelineRenderer {
 
   private renderNoDateDrawer(items: TimelineItem[]): void {
       this.noDateDrawerEl.toggleClass('is-open', this.noDateOpen);
+      const signature = `${this.noDateOpen}:${items.map((item) => `${item.id}\u0000${item.title}`).join('\u0001')}`;
+      if (signature === this.lastNoDateSignature) return;
+      this.lastNoDateSignature = signature;
       this.noDateListEl.empty();
       if (!items.length) { const emptyEl = this.noDateListEl.createDiv({ cls: 'tl-empty' }); emptyEl.setText('All records have start dates.'); return; }
       for (const item of items) { const entryEl = this.noDateListEl.createDiv({ cls: 'tl-drawer-item' }); entryEl.setText(item.title); }
@@ -517,14 +540,23 @@ export class TimelineRenderer {
   
           switch (zoom) {
               case 'day': label = this.timeFormatter.format(time); isMajor = cursor.getHours() === 0; cursor.setHours(cursor.getHours() + 6); break;
-              case 'week': label = cursor.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' }); isMajor = true; cursor.setDate(cursor.getDate() + 1); break;
-              case 'month': label = cursor.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); isMajor = cursor.getDate() === 1; cursor.setDate(cursor.getDate() + 7); break;
-              case 'quarter': label = cursor.toLocaleDateString(undefined, { month: 'short' }); isMajor = cursor.getMonth() % 3 === 0; cursor.setMonth(cursor.getMonth() + 1); break;
-              case 'year': label = cursor.toLocaleDateString(undefined, { month: 'short' }); isMajor = cursor.getMonth() === 0; cursor.setMonth(cursor.getMonth() + 1); break;
+          case 'week': label = this.tickFormatter('weekday-day', { weekday: 'short', day: 'numeric' }).format(cursor); isMajor = true; cursor.setDate(cursor.getDate() + 1); break;
+          case 'month': label = this.tickFormatter('month-day', { month: 'short', day: 'numeric' }).format(cursor); isMajor = cursor.getDate() === 1; cursor.setDate(cursor.getDate() + 7); break;
+          case 'quarter': label = this.tickFormatter('month', { month: 'short' }).format(cursor); isMajor = cursor.getMonth() % 3 === 0; cursor.setMonth(cursor.getMonth() + 1); break;
+          case 'year': label = this.tickFormatter('month', { month: 'short' }).format(cursor); isMajor = cursor.getMonth() === 0; cursor.setMonth(cursor.getMonth() + 1); break;
           }
           ticks.push({ position, label, isMajor });
       }
       return ticks;
+  }
+
+  private tickFormatter(key: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+      let formatter = this.tickFormatters.get(key);
+      if (!formatter) {
+          formatter = new Intl.DateTimeFormat(undefined, options);
+          this.tickFormatters.set(key, formatter);
+      }
+      return formatter;
   }
 
   private computeWeekendRanges(start: number, end: number): Array<{ start: number; end: number }> {
@@ -603,6 +635,7 @@ export class TimelineRenderer {
       this.rootEl.removeEventListener('keydown', this.handleKeyDownBound); 
       this.collapsedLanes.clear(); 
       this.cachedLanes = []; 
+      this.laneRows.clear();
       this.hostEl.empty(); 
   }
 }

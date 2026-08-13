@@ -730,6 +730,14 @@
   cursor: pointer;
   scroll-snap-align: start;
   transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+  content-visibility: auto;
+  contain-intrinsic-size: var(--mbv-card-width) var(--mbv-card-height);
+}
+
+.mbv-card-placeholder {
+  visibility: hidden;
+  pointer-events: none;
+  contain: strict;
 }
 
 .mbv-card.has-card-color {

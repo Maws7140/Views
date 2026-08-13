@@ -64,6 +64,8 @@ const CAROUSEL_PAGE_SIZE = 16;
 const CARDS_PER_FRAME = 8;
 const FRAME_BUDGET_MS = 8;
 const DOUBLE_CLICK_DELAY_MS = 350;
+const MAX_RETAINED_CARDS = 192;
+const RETENTION_MARGIN_PX = 1600;
 
 interface RenderWork {
 	generation: number;
@@ -81,6 +83,18 @@ interface CollectionRenderContext {
 	cardPalette: string[];
 	valuePalette: string[] | undefined;
 	notebookNavigator: NotebookNavigatorApi | null;
+	iconCandidates: Map<string, string[]>;
+	mediaResources: Map<string, string | null>;
+}
+
+interface CollectionScrollState {
+	vertical: number;
+	horizontal: number[];
+}
+
+interface RetainedCard {
+	entry: BasesEntry;
+	context: CollectionRenderContext;
 }
 
 export class CollectionView extends BasesView {
@@ -94,15 +108,31 @@ export class CollectionView extends BasesView {
 	private readonly renderObservers = new Set<IntersectionObserver>();
 	private readonly pendingCardOpens = new Set<number>();
 	private readonly cardsByPath = new Map<string, Set<HTMLElement>>();
+	private readonly placeholdersByPath = new Map<string, Set<HTMLElement>>();
+	private readonly entriesByCard = new WeakMap<HTMLElement, BasesEntry>();
+	private readonly pendingOpenByCard = new WeakMap<HTMLElement, number>();
 	private readonly scrollbars = new Set<CollectionScrollbar>();
 	private readonly cardScrollbars = new WeakMap<HTMLElement, CollectionScrollbar>();
 	private notebookNavigatorEventsRegistered = false;
+	private lastRenderSignature = '';
+	private retentionObserver: IntersectionObserver | null = null;
+	private readonly retainedCards = new WeakMap<HTMLElement, RetainedCard>();
+	private readonly mountedCards = new Set<HTMLElement>();
+	private retentionFrame: number | null = null;
+	private activeRenderContext: CollectionRenderContext | null = null;
 
 	constructor(controller: QueryController, parentEl: HTMLElement) {
 		super(controller);
 		this.scrollHostEl = parentEl.createDiv({ cls: 'mbv-collection-shell' });
 		this.containerEl = this.scrollHostEl.createDiv({ cls: 'mbv-collection' });
 		this.registerEvent(this.app.vault.on('delete', (file) => this.removeDeletedFile(file.path)));
+		this.registerDomEvent(this.containerEl, 'click', (event) => this.handleCardClick(event));
+		this.registerDomEvent(this.containerEl, 'dblclick', (event) => this.handleCardDoubleClick(event));
+		this.registerDomEvent(this.containerEl, 'contextmenu', (event) => this.handleCardContextMenu(event));
+		this.registerDomEvent(this.containerEl, 'auxclick', (event) => this.handleCardAuxClick(event));
+		this.registerDomEvent(this.containerEl, 'keydown', (event) => this.handleCardKeyDown(event));
+		this.registerDomEvent(this.containerEl, 'pointerover', (event) => this.ensureHoveredCardScrollbar(event));
+		this.registerDomEvent(this.containerEl, 'focusin', (event) => this.ensureHoveredCardScrollbar(event));
 	}
 
 	static getViewOptions(): ViewOption[] {
@@ -352,8 +382,17 @@ export class CollectionView extends BasesView {
 	}
 
 	onDataUpdated(): void {
+		const scrollState = this.captureScrollState();
+		const config = this.readConfig();
+		const signature = this.renderSignature(config);
+		if (signature === this.lastRenderSignature && this.containerEl.childElementCount > 0) {
+			if (this.activeRenderContext) this.activeRenderContext.config = config;
+			this.applyVisualConfig(config);
+			return;
+		}
 		this.cancelPendingRendering();
-		this.render(this.readConfig());
+		this.lastRenderSignature = signature;
+		this.render(config, scrollState);
 	}
 
 	onunload(): void {
@@ -452,30 +491,19 @@ export class CollectionView extends BasesView {
 		return Math.min(max, Math.max(min, value));
 	}
 
-	private render(config: CollectionConfig): void {
+	private render(config: CollectionConfig, scrollState?: CollectionScrollState): void {
 		const startedAt = performance.now();
 		const generation = this.renderGeneration;
 		const context = this.createRenderContext(config);
+		this.activeRenderContext = context;
 		if (context.notebookNavigator) this.registerNotebookNavigatorEvents(context.notebookNavigator);
 		this.containerEl.empty();
 		this.cardsByPath.clear();
+		this.placeholdersByPath.clear();
+		this.setupCardRetention(this.data.data.length >= LARGE_COLLECTION_THRESHOLD);
+		this.applyVisualConfig(config);
 		this.containerEl.toggleClass('is-grid', config.layout === 'grid');
 		this.containerEl.toggleClass('is-carousel', config.layout === 'carousel');
-		this.containerEl.toggleClass('has-snap', config.snap);
-		this.containerEl.toggleClass('is-square', config.aspect === 'square');
-		this.containerEl.toggleClass('uses-independent-height', config.aspect !== 'square');
-		this.containerEl.toggleClass('is-horizontal', config.cardDirection !== 'vertical');
-		this.containerEl.toggleClass('is-image-right', config.cardDirection === 'image-right');
-		this.containerEl.toggleClass('media-fit-smart', config.mediaFit === 'smart');
-		this.containerEl.toggleClass('media-fit-contain', config.mediaFit === 'contain');
-		this.containerEl.toggleClass('media-fit-cover', config.mediaFit === 'cover');
-		this.containerEl.setCssProps({
-			'--mbv-card-width': `${config.cardWidth}px`,
-			'--mbv-gap': `${config.gap}px`,
-			'--mbv-card-height': `${config.cardHeight}px`,
-			'--mbv-media-share': `${config.mediaShare}%`,
-			'--mbv-card-radius': config.cardCorners === 'square' ? '0px' : 'var(--radius-l)',
-		});
 
 		if (!this.data?.data?.length) {
 			const emptyEl = this.containerEl.createDiv({ cls: 'mbv-empty' });
@@ -506,10 +534,69 @@ export class CollectionView extends BasesView {
 			if (config.layout === 'carousel') this.addScrollbar(railEl, sectionEl, 'horizontal', true);
 		}
 		this.addScrollbar(this.containerEl, this.scrollHostEl, 'vertical', true);
+		if (scrollState) this.restoreScrollState(scrollState, generation);
 		reportPerformance('collection synchronous render', startedAt, {
 			groups: groups.length,
 			mountedCards: this.containerEl.querySelectorAll('.mbv-card').length,
 			scrollbars: this.scrollbars.size,
+		});
+	}
+
+	private applyVisualConfig(config: CollectionConfig): void {
+		this.containerEl.toggleClass('has-snap', config.snap);
+		this.containerEl.toggleClass('is-square', config.aspect === 'square');
+		this.containerEl.toggleClass('uses-independent-height', config.aspect !== 'square');
+		this.containerEl.toggleClass('is-horizontal', config.cardDirection !== 'vertical');
+		this.containerEl.toggleClass('is-image-right', config.cardDirection === 'image-right');
+		this.containerEl.toggleClass('media-fit-smart', config.mediaFit === 'smart');
+		this.containerEl.toggleClass('media-fit-contain', config.mediaFit === 'contain');
+		this.containerEl.toggleClass('media-fit-cover', config.mediaFit === 'cover');
+		this.containerEl.setCssProps({
+			'--mbv-card-width': `${config.cardWidth}px`,
+			'--mbv-gap': `${config.gap}px`,
+			'--mbv-card-height': `${config.cardHeight}px`,
+			'--mbv-media-share': `${config.mediaShare}%`,
+			'--mbv-card-radius': config.cardCorners === 'square' ? '0px' : 'var(--radius-l)',
+		});
+		this.containerEl.querySelectorAll<HTMLElement>('.mbv-card.has-media').forEach((card) => {
+			card.toggleClass('is-preview-hidden', config.mediaShare === 0);
+			card.toggleClass('is-content-hidden', config.mediaShare === 100);
+		});
+	}
+
+	private renderSignature(config: CollectionConfig): string {
+		const styleKeys = new Set(['cardWidth', 'gap', 'cardHeight', 'mediaShare', 'cardCorners', 'snap', 'aspect', 'cardDirection', 'mediaFit']);
+		const structuralConfig = Object.fromEntries(Object.entries(config)
+			.filter(([key]) => !styleKeys.has(key))
+			.map(([key, value]) => [key, value instanceof Map ? Array.from(value.entries()) : value]));
+		const properties = new Set<BasesPropertyId>(this.config.getOrder());
+		for (const property of [config.mediaProperty, config.titleProperty, config.colorProperty, config.automaticColorProperty, config.iconProperty]) {
+			if (property) properties.add(property);
+		}
+		const groups = this.getVisibleGroups().map((group) => ({
+			key: group.key?.toString() ?? '',
+			entries: group.entries.map((entry) => [
+				entry.file.path,
+				...Array.from(properties, (property) => entry.getValue(property)?.toString() ?? ''),
+			]),
+		}));
+		return JSON.stringify([structuralConfig, Array.from(properties), groups]);
+	}
+
+	private captureScrollState(): CollectionScrollState {
+		return {
+			vertical: this.containerEl.scrollTop,
+			horizontal: Array.from(this.containerEl.querySelectorAll<HTMLElement>('.mbv-rail'), (rail) => rail.scrollLeft),
+		};
+	}
+
+	private restoreScrollState(state: CollectionScrollState, generation: number): void {
+		window.requestAnimationFrame(() => {
+			if (generation !== this.renderGeneration || !this.containerEl.isConnected) return;
+			this.containerEl.scrollTop = state.vertical;
+			this.containerEl.querySelectorAll<HTMLElement>('.mbv-rail').forEach((rail, index) => {
+				rail.scrollLeft = state.horizontal[index] ?? 0;
+			});
 		});
 	}
 
@@ -528,6 +615,8 @@ export class CollectionView extends BasesView {
 			notebookNavigator: config.folderIconSource === 'notebook-navigator'
 				? getNotebookNavigatorApi(this.app)
 				: null,
+			iconCandidates: new Map(),
+			mediaResources: new Map(),
 		};
 	}
 
@@ -664,6 +753,14 @@ export class CollectionView extends BasesView {
 		this.renderObservers.clear();
 		for (const scrollbar of this.scrollbars) scrollbar.destroy();
 		this.scrollbars.clear();
+		this.retentionObserver?.disconnect();
+		this.retentionObserver = null;
+		this.mountedCards.clear();
+		this.activeRenderContext = null;
+		if (this.retentionFrame !== null) {
+			window.cancelAnimationFrame(this.retentionFrame);
+			this.retentionFrame = null;
+		}
 	}
 
 	private getVisibleGroups(): BasesEntryGroup[] {
@@ -684,8 +781,12 @@ export class CollectionView extends BasesView {
 	private renderCard(parentEl: HTMLElement, entry: BasesEntry, context: CollectionRenderContext): HTMLElement {
 		const config = context.config;
 		const title = this.getTitle(entry, config.titleProperty);
-		const icons = resolveCardIcons(entry, config, context.notebookNavigator);
-		const mediaResource = config.mediaProperty ? this.getMediaResource(entry, config.mediaProperty) : null;
+		let icons = context.iconCandidates.get(entry.file.path);
+		if (!icons) {
+			icons = resolveCardIcons(entry, config, context.notebookNavigator);
+			context.iconCandidates.set(entry.file.path, icons);
+		}
+		const mediaResource = config.mediaProperty ? this.getMediaResource(entry, config.mediaProperty, context.mediaResources) : null;
 		const iconInPreview = icons.length > 0 && (
 			config.iconPlacement === 'preview'
 			|| (config.iconPlacement === 'automatic' && !mediaResource)
@@ -699,6 +800,11 @@ export class CollectionView extends BasesView {
 			attr: { role: 'listitem', tabindex: '0', 'aria-label': title },
 		});
 		this.trackCard(entry.file.path, cardEl);
+		this.entriesByCard.set(cardEl, entry);
+		this.mountedCards.add(cardEl);
+		this.retainedCards.set(cardEl, { entry, context });
+		this.retentionObserver?.observe(cardEl);
+		this.scheduleRetentionPrune();
 		const color = resolveCardColor(entry, config, title, this.app, context.cardPalette);
 		if (color) {
 			cardEl.addClass('has-card-color');
@@ -723,51 +829,86 @@ export class CollectionView extends BasesView {
 		headingEl.createDiv({ cls: 'mbv-card-title', text: title });
 		this.renderDetails(bodyEl, entry, context);
 
-		let pendingOpen: number | null = null;
-		const cancelOpen = (): void => {
-			if (pendingOpen === null) return;
-			window.clearTimeout(pendingOpen);
-			this.pendingCardOpens.delete(pendingOpen);
-			pendingOpen = null;
-		};
-		cardEl.addEventListener('click', (event) => {
-			if (event.target instanceof Element && event.target.closest('a, button, input, select, textarea, .mbv-scrollbar')) return;
-			cancelOpen();
-			if (event.detail > 1) return;
-			pendingOpen = window.setTimeout(() => {
-				if (pendingOpen !== null) this.pendingCardOpens.delete(pendingOpen);
-				pendingOpen = null;
-				void this.openEntry(entry, Boolean(Keymap.isModEvent(event)));
-			}, DOUBLE_CLICK_DELAY_MS);
-			this.pendingCardOpens.add(pendingOpen);
-		});
-		cardEl.addEventListener('dblclick', (event) => {
-			if (event.target instanceof Element && event.target.closest('a, button, input, select, textarea, .mbv-scrollbar')) return;
-			event.preventDefault();
-			event.stopPropagation();
-			cancelOpen();
-			this.showFileMenu(entry, event);
-		});
-		cardEl.addEventListener('contextmenu', (event) => {
-			if (event.target instanceof Element && event.target.closest('input, select, textarea, .mbv-scrollbar')) return;
-			event.preventDefault();
-			cancelOpen();
-			this.showFileMenu(entry, event);
-		});
-		cardEl.addEventListener('auxclick', (event) => {
-			if (event.button !== 1) return;
-			event.preventDefault();
-			void this.openEntry(entry, true);
-		});
-		cardEl.addEventListener('keydown', (event) => {
-			if (event.target instanceof Element && event.target.closest('a, button, input, select, textarea, .mbv-scrollbar')) return;
-			if (event.key !== 'Enter' && event.key !== ' ') return;
-			event.preventDefault();
-			void this.openEntry(entry, Boolean(Keymap.isModEvent(event)));
-		});
-		const scrollbar = this.addScrollbar(bodyEl, cardEl, 'vertical');
-		this.cardScrollbars.set(cardEl, scrollbar);
 		return cardEl;
+	}
+
+	private cardEvent(event: Event): { card: HTMLElement; entry: BasesEntry } | null {
+		if (!(event.target instanceof Element)) return null;
+		const card = event.target.closest<HTMLElement>('.mbv-card');
+		if (!card || !this.containerEl.contains(card)) return null;
+		const entry = this.entriesByCard.get(card);
+		return entry ? { card, entry } : null;
+	}
+
+	private isInteractiveTarget(event: Event, includeLinks = true): boolean {
+		return event.target instanceof Element
+			&& Boolean(event.target.closest(`${includeLinks ? 'a, ' : ''}button, input, select, textarea, .mbv-scrollbar`));
+	}
+
+	private cancelCardOpen(card: HTMLElement): void {
+		const timer = this.pendingOpenByCard.get(card);
+		if (timer === undefined) return;
+		window.clearTimeout(timer);
+		this.pendingCardOpens.delete(timer);
+		this.pendingOpenByCard.delete(card);
+	}
+
+	private handleCardClick(event: MouseEvent): void {
+		const target = this.cardEvent(event);
+		if (!target || this.isInteractiveTarget(event)) return;
+		this.cancelCardOpen(target.card);
+		if (event.detail > 1) return;
+		const timer = window.setTimeout(() => {
+			this.pendingCardOpens.delete(timer);
+			this.pendingOpenByCard.delete(target.card);
+			void this.openEntry(target.entry, Boolean(Keymap.isModEvent(event)));
+		}, DOUBLE_CLICK_DELAY_MS);
+		this.pendingOpenByCard.set(target.card, timer);
+		this.pendingCardOpens.add(timer);
+	}
+
+	private handleCardDoubleClick(event: MouseEvent): void {
+		const target = this.cardEvent(event);
+		if (!target || this.isInteractiveTarget(event)) return;
+		event.preventDefault();
+		event.stopPropagation();
+		this.cancelCardOpen(target.card);
+		this.showFileMenu(target.entry, event);
+	}
+
+	private handleCardContextMenu(event: MouseEvent): void {
+		const target = this.cardEvent(event);
+		if (!target || this.isInteractiveTarget(event, false)) return;
+		event.preventDefault();
+		this.cancelCardOpen(target.card);
+		this.showFileMenu(target.entry, event);
+	}
+
+	private handleCardAuxClick(event: MouseEvent): void {
+		if (event.button !== 1) return;
+		const target = this.cardEvent(event);
+		if (!target) return;
+		event.preventDefault();
+		void this.openEntry(target.entry, true);
+	}
+
+	private handleCardKeyDown(event: KeyboardEvent): void {
+		const target = this.cardEvent(event);
+		if (!target || this.isInteractiveTarget(event) || (event.key !== 'Enter' && event.key !== ' ')) return;
+		event.preventDefault();
+		void this.openEntry(target.entry, Boolean(Keymap.isModEvent(event)));
+	}
+
+	private ensureHoveredCardScrollbar(event: Event): void {
+		const target = this.cardEvent(event);
+		if (!target || this.cardScrollbars.has(target.card)) return;
+		window.requestAnimationFrame(() => {
+			if (!target.card.isConnected || this.cardScrollbars.has(target.card)) return;
+			const body = target.card.querySelector<HTMLElement>('.mbv-card-body');
+			if (!body || body.scrollHeight - body.clientHeight <= 4) return;
+			const scrollbar = this.addScrollbar(body, target.card, 'vertical');
+			this.cardScrollbars.set(target.card, scrollbar);
+		});
 	}
 
 	private addScrollbar(
@@ -794,10 +935,16 @@ export class CollectionView extends BasesView {
 		cards.add(cardEl);
 	}
 
-	private removeDeletedFile(path: string): void {
+	private untrackCard(path: string, cardEl: HTMLElement): void {
 		const cards = this.cardsByPath.get(path);
 		if (!cards) return;
-		for (const card of cards) {
+		cards.delete(cardEl);
+		if (!cards.size) this.cardsByPath.delete(path);
+	}
+
+	private removeDeletedFile(path: string): void {
+		const cards = this.cardsByPath.get(path);
+		for (const card of cards ?? []) {
 			const scrollbar = this.cardScrollbars.get(card);
 			if (scrollbar) {
 				scrollbar.destroy();
@@ -805,8 +952,94 @@ export class CollectionView extends BasesView {
 				this.cardScrollbars.delete(card);
 			}
 			card.remove();
+			this.mountedCards.delete(card);
 		}
 		this.cardsByPath.delete(path);
+		for (const placeholder of this.placeholdersByPath.get(path) ?? []) {
+			this.retentionObserver?.unobserve(placeholder);
+			placeholder.remove();
+		}
+		this.placeholdersByPath.delete(path);
+	}
+
+	private setupCardRetention(enabled: boolean): void {
+		this.retentionObserver?.disconnect();
+		this.retentionObserver = enabled ? new IntersectionObserver((records) => {
+			for (const record of records) {
+				if (!(record.target instanceof HTMLElement)) continue;
+				if (record.target.hasClass('mbv-card-placeholder') && record.isIntersecting) {
+					this.restoreRetainedCard(record.target);
+				}
+			}
+		}, {
+			root: this.containerEl,
+			rootMargin: `${RETENTION_MARGIN_PX}px`,
+			threshold: 0,
+		}) : null;
+	}
+
+	private scheduleRetentionPrune(): void {
+		if (!this.retentionObserver || this.mountedCards.size <= MAX_RETAINED_CARDS || this.retentionFrame !== null) return;
+		this.retentionFrame = window.requestAnimationFrame(() => {
+			this.retentionFrame = null;
+			this.pruneDistantCards();
+		});
+	}
+
+	private pruneDistantCards(): void {
+		if (!this.retentionObserver || this.mountedCards.size <= MAX_RETAINED_CARDS) return;
+		const viewport = this.containerEl.getBoundingClientRect();
+		const distant = Array.from(this.mountedCards).filter((card) => {
+			if (!card.isConnected || card.contains(document.activeElement)) return false;
+			const rect = card.getBoundingClientRect();
+			return rect.bottom < viewport.top - RETENTION_MARGIN_PX
+				|| rect.top > viewport.bottom + RETENTION_MARGIN_PX
+				|| rect.right < viewport.left - RETENTION_MARGIN_PX
+				|| rect.left > viewport.right + RETENTION_MARGIN_PX;
+		});
+		for (const card of distant) {
+			if (this.mountedCards.size <= MAX_RETAINED_CARDS) break;
+			this.retainCardAsPlaceholder(card);
+		}
+	}
+
+	private retainCardAsPlaceholder(card: HTMLElement): void {
+		const retained = this.retainedCards.get(card);
+		if (!retained || !card.parentElement) return;
+		this.cancelCardOpen(card);
+		const scrollbar = this.cardScrollbars.get(card);
+		if (scrollbar) {
+			scrollbar.destroy();
+			this.scrollbars.delete(scrollbar);
+			this.cardScrollbars.delete(card);
+		}
+		const placeholder = document.createElement('div');
+		placeholder.className = 'mbv-card mbv-card-placeholder';
+		placeholder.setAttribute('aria-hidden', 'true');
+		this.retainedCards.set(placeholder, retained);
+		let placeholders = this.placeholdersByPath.get(retained.entry.file.path);
+		if (!placeholders) {
+			placeholders = new Set();
+			this.placeholdersByPath.set(retained.entry.file.path, placeholders);
+		}
+		placeholders.add(placeholder);
+		this.retentionObserver?.unobserve(card);
+		card.replaceWith(placeholder);
+		this.mountedCards.delete(card);
+		this.untrackCard(retained.entry.file.path, card);
+		this.retentionObserver?.observe(placeholder);
+	}
+
+	private restoreRetainedCard(placeholder: HTMLElement): void {
+		const retained = this.retainedCards.get(placeholder);
+		const parent = placeholder.parentElement;
+		if (!retained || !parent || !this.isEntryLive(retained.entry)) return;
+		this.retentionObserver?.unobserve(placeholder);
+		const placeholders = this.placeholdersByPath.get(retained.entry.file.path);
+		placeholders?.delete(placeholder);
+		if (placeholders && !placeholders.size) this.placeholdersByPath.delete(retained.entry.file.path);
+		const card = this.renderCard(parent, retained.entry, retained.context);
+		placeholder.replaceWith(card);
 	}
 
 	private registerNotebookNavigatorEvents(api: NotebookNavigatorApi): void {
@@ -814,6 +1047,7 @@ export class CollectionView extends BasesView {
 		this.notebookNavigatorEventsRegistered = true;
 		const refresh = (): void => {
 			invalidateNotebookNavigatorIconCache(this.app);
+			this.lastRenderSignature = '';
 			this.onDataUpdated();
 		};
 		const folderChanged = api.on('folder-changed', refresh);
@@ -876,10 +1110,18 @@ export class CollectionView extends BasesView {
 		setIcon(fallbackEl, this.iconForExtension(entry.file.extension));
 	}
 
-	private getMediaResource(entry: BasesEntry, property: BasesPropertyId): string | null {
+	private getMediaResource(
+		entry: BasesEntry,
+		property: BasesPropertyId,
+		cache?: Map<string, string | null>,
+	): string | null {
 		const source = entry.getValue(property)?.toString() ?? '';
-		return this.resolveMediaResource(source, entry.file.path)
+		const key = `${entry.file.path}\u0000${property}\u0000${source}`;
+		if (cache?.has(key)) return cache.get(key) ?? null;
+		const resource = this.resolveMediaResource(source, entry.file.path)
 			?? (IMAGE_EXTENSIONS.has(entry.file.extension.toLowerCase()) ? this.app.vault.getResourcePath(entry.file) : null);
+		cache?.set(key, resource);
+		return resource;
 	}
 
 	private resolveMediaResource(rawValue: string, sourcePath: string): string | null {
