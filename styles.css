@@ -1363,7 +1363,7 @@ body.views-tabs-is-probing .bases-toolbar-menu.bases-toolbar-views-menu {
 
 .views-view-tab.is-active {
   color: var(--text-normal);
-  background: var(--background-secondary-alt);
+  background: transparent;
 }
 
 .views-view-tab:focus-visible,
