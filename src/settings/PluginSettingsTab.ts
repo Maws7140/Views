@@ -11,6 +11,16 @@ export class TimelinePluginSettingTab extends PluginSettingTab {
 		containerEl.empty();
 
 		containerEl.createEl('h2', { text: 'Views' });
+		new Setting(containerEl)
+			.setName('Horizontal Base view tabs')
+			.setDesc('Show Base views as responsive horizontal tabs while preserving Obsidian’s native view manager.')
+			.addToggle((toggle) => toggle
+				.setValue(this.plugin.settings.horizontalViewTabsEnabled)
+				.onChange(async (value) => {
+					this.plugin.settings.horizontalViewTabsEnabled = value;
+					await this.plugin.saveSettings();
+				}));
+
 		containerEl.createEl('h3', { text: 'Timeline defaults' });
 		containerEl.createEl('p', {
 			text: 'Set defaults for new timeline views. You can override these per view from the Timeline toolbar.',

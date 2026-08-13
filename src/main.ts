@@ -1,4 +1,5 @@
 import { Plugin } from 'obsidian';
+import { BaseViewTabsEnhancer } from './base-tabs/BaseViewTabsEnhancer';
 import { TimelinePluginSettingTab } from './settings/PluginSettingsTab';
 import { DEFAULT_SETTINGS, migrateSettings, ViewsPluginSettings } from './settings/settings';
 import { TableColorEnhancer } from './table-colors/TableColorEnhancer';
@@ -9,6 +10,7 @@ export type { ViewsPluginSettings } from './settings/settings';
 export default class ViewsPlugin extends Plugin {
 	settings: ViewsPluginSettings = DEFAULT_SETTINGS;
 	private tableColors: TableColorEnhancer | null = null;
+	private viewTabs: BaseViewTabsEnhancer | null = null;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -16,6 +18,8 @@ export default class ViewsPlugin extends Plugin {
 		if (VIEW_DEFINITIONS.map((definition) => definition.register(this)).some((registered) => !registered)) {
 			console.warn('[Views] Bases is not enabled in this vault.');
 		}
+		this.viewTabs = new BaseViewTabsEnhancer(() => this.settings);
+		this.addChild(this.viewTabs);
 
 		this.tableColors = new TableColorEnhancer(
 			() => this.settings,
@@ -26,6 +30,11 @@ export default class ViewsPlugin extends Plugin {
 			id: 'refresh-native-table-colors',
 			name: 'Refresh native table colors',
 			callback: () => this.tableColors?.refresh(),
+		});
+		this.addCommand({
+			id: 'refresh-horizontal-view-tabs',
+			name: 'Refresh horizontal Base view tabs',
+			callback: () => this.viewTabs?.refresh(),
 		});
 		this.addSettingTab(new TimelinePluginSettingTab(this.app, this));
 	}
@@ -39,5 +48,6 @@ export default class ViewsPlugin extends Plugin {
 	async saveSettings(): Promise<void> {
 		await this.saveData(this.settings);
 		this.tableColors?.refresh();
+		this.viewTabs?.refresh();
 	}
 }

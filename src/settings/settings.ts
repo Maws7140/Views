@@ -1,6 +1,6 @@
 import type { ColorPackId } from '../table-colors/palettes';
 
-export const SETTINGS_VERSION = 1;
+export const SETTINGS_VERSION = 2;
 
 export interface ViewsPluginSettings {
 	settingsVersion: number;
@@ -13,6 +13,7 @@ export interface ViewsPluginSettings {
 	customPalette: string;
 	colorValuePills: boolean;
 	tableColorDisabledProperties: string[];
+	horizontalViewTabsEnabled: boolean;
 }
 
 export const DEFAULT_SETTINGS: ViewsPluginSettings = {
@@ -21,6 +22,7 @@ export const DEFAULT_SETTINGS: ViewsPluginSettings = {
 	tableColorsEnabled: true, colorPack: 'notion',
 	customPalette: '#787774, #9f6b53, #d9730d, #cb912f, #448361, #337ea9, #9065b0, #c14c8a, #d44c47',
 	colorValuePills: true, tableColorDisabledProperties: [],
+	horizontalViewTabsEnabled: true,
 };
 
 const LEGACY_KEYS = ['manualColorProperty', 'automaticColorsEnabled', 'automaticColorProperty', 'colorScalarValues'] as const;

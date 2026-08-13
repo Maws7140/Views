@@ -1291,6 +1291,144 @@
 
 /* Native Bases table property-value colors ------------------------------ */
 
+/* Horizontal Base view tabs --------------------------------------------- */
+
+body.views-tabs-is-probing .bases-toolbar-menu.bases-toolbar-views-menu {
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+.bases-header.views-tabs-enabled .bases-toolbar-item.bases-toolbar-views-menu {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  pointer-events: none;
+}
+
+.bases-header.views-tabs-enabled .bases-toolbar-result-count {
+  flex: 0 1 auto;
+  max-width: 120px;
+  margin-inline-end: 0;
+}
+
+.views-view-tabs {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  column-gap: var(--size-2-2);
+  overflow: hidden;
+}
+
+.views-view-tabs[hidden],
+.views-view-tab[hidden],
+.views-view-tabs-more[hidden] {
+  display: none;
+}
+
+.views-view-tab,
+.views-view-tabs-more {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: var(--size-4-2);
+  height: 32px;
+  min-width: 0;
+  max-width: 180px;
+  margin: 0;
+  padding: 0 var(--size-4-3);
+  border: 0;
+  border-radius: var(--radius-l);
+  color: var(--text-muted);
+  background: transparent;
+  box-shadow: none;
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-medium);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.views-view-tab:hover,
+.views-view-tabs-more:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.views-view-tab.is-active {
+  color: var(--text-normal);
+  background: var(--background-secondary-alt);
+}
+
+.views-view-tab:focus-visible,
+.views-view-tabs-more:focus-visible {
+  outline: 2px solid var(--background-modifier-border-focus);
+  outline-offset: -2px;
+}
+
+.views-view-tab:disabled {
+  opacity: var(--disabled-opacity);
+}
+
+.views-view-tab-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: var(--icon-s);
+  height: var(--icon-s);
+  color: currentColor;
+}
+
+.views-view-tab-icon svg {
+  width: var(--icon-s);
+  height: var(--icon-s);
+  stroke-width: var(--icon-s-stroke-width);
+}
+
+.views-view-tab-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.views-view-tabs-more {
+  color: var(--text-muted);
+  background: var(--background-secondary);
+}
+
+.bases-embed .views-view-tab,
+.bases-embed .views-view-tabs-more {
+  height: 28px;
+  max-width: 140px;
+  padding-inline: var(--size-4-2);
+}
+
+@container bases-header (width < 620px) {
+  .views-view-tab,
+  .views-view-tabs-more {
+    max-width: 130px;
+    padding-inline: var(--size-4-2);
+  }
+
+  .bases-header.views-tabs-enabled .bases-toolbar-result-count {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .views-view-tab,
+  .views-view-tabs-more {
+    transition: color 100ms ease, background-color 100ms ease;
+  }
+}
+
 .bases-view :is(.multi-select-pill, a.tag).views-colored-pill.has-value-color,
 .bases-embed :is(.multi-select-pill, a.tag).views-colored-pill.has-value-color {
   max-width: 100%;
