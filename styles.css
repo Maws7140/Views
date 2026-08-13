@@ -613,10 +613,10 @@
   height: 8px;
 }
 
-.mbv-scroll-host:hover > .mbv-scrollbar.is-active,
-.mbv-scroll-host:focus-within > .mbv-scrollbar.is-active,
+.mbv-scrollbar.is-hovered,
 .mbv-scrollbar.is-scrolling,
-.mbv-scrollbar.is-dragging {
+.mbv-scrollbar.is-dragging,
+.mbv-scrollbar.is-focused {
   opacity: 0.92;
   pointer-events: auto;
 }
@@ -628,6 +628,7 @@
   background: color-mix(in srgb, var(--mbv-card-color, var(--text-muted)) 62%, transparent);
   background-clip: padding-box;
   cursor: grab;
+  will-change: transform;
 }
 
 .mbv-scrollbar.is-dragging .mbv-scrollbar-thumb {
@@ -635,15 +636,17 @@
 }
 
 .mbv-scrollbar.is-vertical .mbv-scrollbar-thumb {
-  top: var(--mbv-scroll-thumb-position, 0);
+  top: 0;
   width: 100%;
   height: var(--mbv-scroll-thumb-size, 24px);
+  transform: translate3d(0, var(--mbv-scroll-thumb-position, 0), 0);
 }
 
 .mbv-scrollbar.is-horizontal .mbv-scrollbar-thumb {
-  left: var(--mbv-scroll-thumb-position, 0);
+  left: 0;
   width: var(--mbv-scroll-thumb-size, 24px);
   height: 100%;
+  transform: translate3d(var(--mbv-scroll-thumb-position, 0), 0, 0);
 }
 
 @media (hover: none) {
@@ -706,7 +709,6 @@
   overflow-y: hidden;
   padding: var(--size-2-2) var(--size-2-2) var(--size-4-3);
   overscroll-behavior-inline: contain;
-  scrollbar-width: thin;
 }
 
 .mbv-collection.is-carousel.has-snap .mbv-rail {
@@ -722,10 +724,8 @@
   flex-direction: column;
   min-width: 0;
   overflow: hidden;
-  content-visibility: auto;
-  contain-intrinsic-size: auto 320px;
   border: var(--border-width) solid var(--background-modifier-border);
-  border-radius: var(--radius-l);
+  border-radius: var(--mbv-card-radius, var(--radius-l));
   background: var(--background-secondary);
   box-shadow: var(--shadow-s);
   cursor: pointer;
@@ -988,8 +988,21 @@
   font-variant-numeric: tabular-nums;
 }
 
-.views-property-value.is-boolean.is-checked .views-property-value-icon {
-  color: var(--interactive-accent);
+.views-property-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--size-2-2);
+  width: fit-content;
+  cursor: pointer;
+}
+
+.views-property-checkbox input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}
+
+.views-property-checkbox input[type="checkbox"]:disabled {
+  cursor: not-allowed;
 }
 
 .views-property-value.is-list {
@@ -1017,8 +1030,17 @@
 
 .views-property-pill.is-tag {
   color: var(--text-normal);
-  background: color-mix(in srgb, var(--interactive-accent) 9%, var(--background-secondary-alt));
-  border-color: color-mix(in srgb, var(--interactive-accent) 22%, var(--background-modifier-border));
+}
+
+.views-property-pill.has-value-color {
+  color: color-mix(in srgb, var(--views-property-color) 55%, var(--text-normal));
+  background: color-mix(in srgb, var(--views-property-color) 18%, var(--background-primary));
+  border-color: color-mix(in srgb, var(--views-property-color) 32%, transparent);
+}
+
+.theme-dark .views-property-pill.has-value-color {
+  color: color-mix(in srgb, var(--views-property-color) 38%, var(--text-normal));
+  background: color-mix(in srgb, var(--views-property-color) 24%, var(--background-primary));
 }
 
 .views-property-pill a,
@@ -1065,7 +1087,6 @@
   max-height: none;
   overflow-x: hidden;
   overflow-y: auto;
-  scrollbar-width: thin;
 }
 
 .mbv-collection.is-square:not(.is-horizontal) .mbv-card {
@@ -1107,7 +1128,6 @@
   flex: 1 1 0;
   overflow-x: hidden;
   overflow-y: auto;
-  scrollbar-width: thin;
 }
 
 .mbv-card.has-media.is-preview-hidden .mbv-card-media,

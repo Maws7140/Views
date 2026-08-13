@@ -6,7 +6,7 @@ Views adds more ways to display [Obsidian Bases](https://help.obsidian.md/bases)
 
 ### Collection
 
-Displays files as cards in a carousel or grid.
+Displays files as cards in a horizontal row or grid.
 
 - Choose a property for the title and image.
 - Use top to bottom, image left, or image right layouts.

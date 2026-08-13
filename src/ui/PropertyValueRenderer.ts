@@ -11,15 +11,20 @@ import {
 	LinkValue,
 	ListValue,
 	NumberValue,
+	Notice,
 	TagValue,
 	UrlValue,
 	Value,
 	setIcon,
 } from 'obsidian';
+import { stableColor } from '../table-colors/palettes';
 
 export interface PropertyValueRenderContext {
 	app: App;
 	property: BasesPropertyId;
+	displayName?: string;
+	valueColorPalette?: string[];
+	onBooleanChange?: (checked: boolean) => Promise<void>;
 }
 
 /**
@@ -43,7 +48,7 @@ export function renderPropertyValue(
 		return;
 	}
 	if (value instanceof BooleanValue) {
-		renderBoolean(container, value);
+		renderBoolean(container, value, context);
 		return;
 	}
 	if (value instanceof NumberValue) {
@@ -85,6 +90,14 @@ function renderPill(
 ): void {
 	const pillEl = container.createSpan({ cls: 'views-property-pill' });
 	if (tag || value instanceof TagValue) pillEl.addClass('is-tag');
+	const rawValue = value.toString().trim();
+	const color = context.valueColorPalette?.length
+		? stableColor(rawValue, context.valueColorPalette)
+		: null;
+	if (color) {
+		pillEl.addClass('has-value-color');
+		pillEl.style.setProperty('--views-property-color', color);
+	}
 	if (isRichValue(value)) {
 		value.renderTo(pillEl, context.app.renderContext);
 	} else {
@@ -101,9 +114,37 @@ function renderDate(container: HTMLElement, value: DateValue, property: BasesPro
 	container.setAttr('title', raw);
 }
 
-function renderBoolean(container: HTMLElement, value: BooleanValue): void {
+function renderBoolean(
+	container: HTMLElement,
+	value: BooleanValue,
+	context: PropertyValueRenderContext,
+): void {
 	const checked = value.toString().trim().toLocaleLowerCase() === 'true';
-	renderIconText(container, checked ? 'circle-check' : 'circle', checked ? 'Yes' : 'No', 'is-boolean');
+	container.addClass('is-boolean');
+	const label = container.createEl('label', { cls: 'views-property-checkbox' });
+	const input = label.createEl('input', {
+		type: 'checkbox',
+		attr: { 'aria-label': context.displayName ?? context.property },
+	});
+	input.checked = checked;
+	input.disabled = !context.onBooleanChange;
+	label.createSpan({ cls: 'views-property-value-text', text: checked ? 'Yes' : 'No' });
+	input.addEventListener('change', () => {
+		if (!context.onBooleanChange) return;
+		const next = input.checked;
+		container.toggleClass('is-checked', next);
+		const text = label.querySelector<HTMLElement>('.views-property-value-text');
+		if (text) text.setText(next ? 'Yes' : 'No');
+		input.disabled = true;
+		void context.onBooleanChange(next).catch(() => {
+			input.checked = !next;
+			container.toggleClass('is-checked', !next);
+			if (text) text.setText(next ? 'No' : 'Yes');
+			new Notice(`Unable to update ${context.displayName ?? 'checkbox'}.`);
+		}).finally(() => {
+			input.disabled = false;
+		});
+	});
 	container.toggleClass('is-checked', checked);
 }
 

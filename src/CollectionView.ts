@@ -16,12 +16,13 @@ import {
 	CollectionColorMode,
 	FolderIconSource,
 	getNotebookNavigatorApi,
+	invalidateNotebookNavigatorIconCache,
 	parseFolderIconRules,
 	renderCollectionIcon,
 	resolveCardColor,
-	resolveCardIcon,
+	resolveCardIcons,
 } from './collection/appearance';
-import { ColorPackId } from './table-colors/palettes';
+import { COLOR_PACKS, ColorPackId, isCssColor } from './table-colors/palettes';
 import { renderPropertyValue } from './ui/PropertyValueRenderer';
 import { CollectionScrollbar, ScrollbarOrientation } from './collection/CollectionScrollbar';
 
@@ -32,6 +33,7 @@ type CardAspect = 'flexible' | 'square';
 type CardDirection = 'vertical' | 'image-left' | 'image-right';
 type MediaFit = 'smart' | 'contain' | 'cover';
 type IconPlacement = 'automatic' | 'preview' | 'title';
+type CardCorners = 'rounded' | 'square';
 
 interface CollectionConfig extends CollectionAppearanceConfig {
 	layout: CollectionLayout;
@@ -47,6 +49,10 @@ interface CollectionConfig extends CollectionAppearanceConfig {
 	mediaFit: MediaFit;
 	snap: boolean;
 	iconPlacement: IconPlacement;
+	propertyValueColors: boolean;
+	propertyValueColorPack: ColorPackId;
+	propertyValueCustomColors: string[];
+	cardCorners: CardCorners;
 }
 
 const IMAGE_EXTENSIONS = new Set(['avif', 'bmp', 'gif', 'jpeg', 'jpg', 'png', 'svg', 'webp']);
@@ -69,6 +75,7 @@ export class CollectionView extends BasesView {
 	private renderGeneration = 0;
 	private renderFrame: number | null = null;
 	private readonly renderQueue: RenderWork[] = [];
+	private renderQueueIndex = 0;
 	private readonly renderObservers = new Set<IntersectionObserver>();
 	private readonly pendingCardOpens = new Set<number>();
 	private readonly cardsByPath = new Map<string, Set<HTMLElement>>();
@@ -93,7 +100,7 @@ export class CollectionView extends BasesView {
 						key: 'layout',
 						displayName: 'Layout style',
 						default: 'carousel',
-						options: { carousel: 'Carousel', grid: 'Grid' },
+						options: { carousel: 'Horizontal', grid: 'Grid' },
 					},
 					{
 						type: 'slider',
@@ -137,6 +144,13 @@ export class CollectionView extends BasesView {
 					},
 					{
 						type: 'dropdown',
+						key: 'cardCorners',
+						displayName: 'Card corners',
+						default: 'rounded',
+						options: { rounded: 'Rounded', square: 'Square' },
+					},
+					{
+						type: 'dropdown',
 						key: 'aspect',
 						displayName: 'Card proportions',
 						default: 'flexible',
@@ -173,7 +187,7 @@ export class CollectionView extends BasesView {
 					{
 						type: 'toggle',
 						key: 'snap',
-						displayName: 'Snap carousel cards',
+						displayName: 'Snap horizontal cards',
 						default: true,
 					},
 				],
@@ -243,6 +257,31 @@ export class CollectionView extends BasesView {
 						type: 'multitext',
 						key: 'customColors',
 						displayName: 'Custom palette colors',
+						default: [],
+					},
+				],
+			},
+			{
+				type: 'group',
+				displayName: 'Property values',
+				items: [
+					{
+						type: 'toggle',
+						key: 'propertyValueColors',
+						displayName: 'Automatic tag and list colors',
+						default: true,
+					},
+					{
+						type: 'dropdown',
+						key: 'propertyValueColorPack',
+						displayName: 'Property value color pack',
+						default: 'notion',
+						options: { notion: 'Notion', pastel: 'Pastel', vivid: 'Vivid', earth: 'Earth', custom: 'Custom' },
+					},
+					{
+						type: 'multitext',
+						key: 'propertyValueCustomColors',
+						displayName: 'Custom property value colors',
 						default: [],
 					},
 				],
@@ -319,9 +358,11 @@ export class CollectionView extends BasesView {
 		const mediaFit = this.config.get('mediaFit');
 		const colorMode = this.config.get('colorMode');
 		const automaticColorSource = this.config.get('automaticColorSource');
+		const automaticColorProperty = this.config.getAsPropertyId('automaticColorProperty');
 		const colorPack = this.config.get('colorPack');
 		const folderIconSource = this.config.get('folderIconSource');
 		const iconPlacement = this.config.get('iconPlacement');
+		const cardCorners = this.config.get('cardCorners');
 		return {
 			layout: layout === 'grid' ? 'grid' : 'carousel',
 			mediaProperty: this.config.getAsPropertyId('mediaProperty'),
@@ -339,13 +380,29 @@ export class CollectionView extends BasesView {
 			snap: this.config.get('snap') !== false,
 			colorMode: this.colorMode(colorMode),
 			colorProperty: this.config.getAsPropertyId('colorProperty') ?? 'note.color',
-			automaticColorSource: this.automaticColorSource(automaticColorSource),
-			automaticColorProperty: this.config.getAsPropertyId('automaticColorProperty'),
+			// Bases omits dropdown defaults from the saved view. If a user chooses an
+			// automatic property while the source dropdown is still at its implicit
+			// default, treat that property selection as authoritative instead of
+			// silently hashing card titles.
+			automaticColorSource: automaticColorSource === undefined && automaticColorProperty
+				? 'property'
+				: this.automaticColorSource(automaticColorSource),
+			automaticColorProperty,
 			colorPack: this.colorPack(colorPack),
 			customColors: this.stringListOption('customColors'),
 			showIcons: this.config.get('showIcons') !== false,
 			iconPlacement: this.iconPlacement(iconPlacement),
-			iconProperty: this.config.getAsPropertyId('iconProperty') ?? 'note.icon',
+			propertyValueColors: this.config.get('propertyValueColors') !== false,
+			propertyValueColorPack: this.colorPack(this.config.get('propertyValueColorPack')),
+			propertyValueCustomColors: this.stringListOption('propertyValueCustomColors'),
+			// Preserve the old boolean setting while using an explicit dropdown value
+			// that Bases reliably persists for square corners.
+			cardCorners: cardCorners === 'square'
+				|| (cardCorners === undefined && this.config.get('roundedCorners') === false)
+				? 'square'
+				: 'rounded',
+			iconProperty: this.config.getAsPropertyId('iconProperty')
+				?? (this.folderIconSource(folderIconSource) === 'notebook-navigator' ? null : 'note.icon'),
 			folderIconSource: this.folderIconSource(folderIconSource),
 			folderIconRules: parseFolderIconRules(this.config.get('folderIconRules')),
 			inheritFolderIcons: this.config.get('inheritFolderIcons') !== false,
@@ -408,6 +465,7 @@ export class CollectionView extends BasesView {
 			'--mbv-gap': `${config.gap}px`,
 			'--mbv-card-height': `${config.cardHeight}px`,
 			'--mbv-media-share': `${config.mediaShare}%`,
+			'--mbv-card-radius': config.cardCorners === 'square' ? '0px' : 'var(--radius-l)',
 		});
 
 		if (!this.data?.data?.length) {
@@ -436,9 +494,9 @@ export class CollectionView extends BasesView {
 			} else {
 				this.renderGroupOnDemand(sectionEl, railEl, group.entries, config, generation);
 			}
-			if (config.layout === 'carousel') this.addScrollbar(railEl, sectionEl, 'horizontal');
+			if (config.layout === 'carousel') this.addScrollbar(railEl, sectionEl, 'horizontal', true);
 		}
-		this.addScrollbar(this.containerEl, this.scrollHostEl, 'vertical');
+		this.addScrollbar(this.containerEl, this.scrollHostEl, 'vertical', true);
 	}
 
 	private renderGroupOnDemand(
@@ -514,7 +572,7 @@ export class CollectionView extends BasesView {
 		});
 		this.renderObservers.add(observer);
 		sectionEl.addClass('is-progressive');
-		queuePage();
+		observer.observe(sentinelEl);
 	}
 
 	private scheduleRenderWork(): void {
@@ -524,11 +582,12 @@ export class CollectionView extends BasesView {
 			let completedCards = 0;
 			const startedAt = performance.now();
 			while (
-				this.renderQueue.length
+				this.renderQueueIndex < this.renderQueue.length
 				&& completedCards < CARDS_PER_FRAME
 				&& (completedCards === 0 || performance.now() - startedAt < FRAME_BUDGET_MS)
 			) {
-				const work = this.renderQueue.shift();
+				const work = this.renderQueue[this.renderQueueIndex];
+				this.renderQueueIndex += 1;
 				if (!work || work.generation !== this.renderGeneration) continue;
 				try {
 					work.run();
@@ -540,13 +599,19 @@ export class CollectionView extends BasesView {
 				}
 				completedCards += 1;
 			}
-			if (this.renderQueue.length) this.scheduleRenderWork();
+			if (this.renderQueueIndex < this.renderQueue.length) {
+				this.scheduleRenderWork();
+			} else {
+				this.renderQueue.length = 0;
+				this.renderQueueIndex = 0;
+			}
 		});
 	}
 
 	private cancelPendingRendering(): void {
 		this.renderGeneration += 1;
 		this.renderQueue.length = 0;
+		this.renderQueueIndex = 0;
 		for (const timer of this.pendingCardOpens) window.clearTimeout(timer);
 		this.pendingCardOpens.clear();
 		if (this.renderFrame !== null) {
@@ -560,24 +625,12 @@ export class CollectionView extends BasesView {
 	}
 
 	private getVisibleGroups(): BasesEntryGroup[] {
-		const visibleEntries = this.data.data;
-		const groupBy = this.config.get('groupBy');
-
-		// `data.data` is the authoritative filtered/sorted/limited result. Bases also
-		// exposes groupedData, but it can briefly retain a broader group projection
-		// while native filter and result controls are being edited. Never render an
-		// entry that is absent from data.data.
-		if (!groupBy || !this.data.groupedData?.length) {
-			return [{ key: undefined, entries: visibleEntries }] as BasesEntryGroup[];
-		}
-
-		const visiblePaths = new Set(visibleEntries.map((entry) => entry.file.path));
-		return this.data.groupedData
-			.map((group) => ({
-				key: group.key,
-				entries: group.entries.filter((entry) => visiblePaths.has(entry.file.path)),
-			}))
-			.filter((group) => group.entries.length > 0) as BasesEntryGroup[];
+		// groupedData is the Bases API's authoritative render projection. It already
+		// applies native grouping, filtering, sorting, and limits, and returns one
+		// empty-key group when grouping is disabled. `groupBy` is a core Bases option,
+		// so reading it through the custom view-option config incorrectly returned
+		// undefined and flattened every Grid into a single group.
+		return this.data.groupedData.filter((group) => group.entries.length > 0);
 	}
 
 	private renderGroupHeader(sectionEl: HTMLElement, label: string, count: number): void {
@@ -588,13 +641,13 @@ export class CollectionView extends BasesView {
 
 	private renderCard(parentEl: HTMLElement, entry: BasesEntry, config: CollectionConfig): HTMLElement {
 		const title = this.getTitle(entry, config.titleProperty);
-		const icon = resolveCardIcon(entry, config, getNotebookNavigatorApi(this.app));
+		const icons = resolveCardIcons(entry, config, getNotebookNavigatorApi(this.app));
 		const mediaResource = config.mediaProperty ? this.getMediaResource(entry, config.mediaProperty) : null;
-		const iconInPreview = Boolean(icon) && (
+		const iconInPreview = icons.length > 0 && (
 			config.iconPlacement === 'preview'
 			|| (config.iconPlacement === 'automatic' && !mediaResource)
 		);
-		const iconBesideTitle = Boolean(icon) && (
+		const iconBesideTitle = icons.length > 0 && (
 			config.iconPlacement === 'title'
 			|| (config.iconPlacement === 'automatic' && Boolean(mediaResource))
 		);
@@ -613,9 +666,9 @@ export class CollectionView extends BasesView {
 			cardEl.toggleClass('is-preview-hidden', config.mediaShare === 0);
 			cardEl.toggleClass('is-content-hidden', config.mediaShare === 100);
 			const mediaEl = cardEl.createDiv({ cls: 'mbv-card-media' });
-			if (iconInPreview && icon) {
+			if (iconInPreview) {
 				mediaEl.addClass('is-icon-preview');
-				renderCollectionIcon(mediaEl.createDiv({ cls: 'mbv-card-preview-icon' }), icon, this.app);
+				renderCollectionIcon(mediaEl.createDiv({ cls: 'mbv-card-preview-icon' }), icons, this.app);
 			} else {
 				this.renderMedia(mediaEl, entry, mediaResource);
 			}
@@ -623,7 +676,7 @@ export class CollectionView extends BasesView {
 
 		const bodyEl = cardEl.createDiv({ cls: 'mbv-card-body' });
 		const headingEl = bodyEl.createDiv({ cls: 'mbv-card-heading' });
-		if (iconBesideTitle && icon) renderCollectionIcon(headingEl.createSpan({ cls: 'mbv-card-icon' }), icon, this.app);
+		if (iconBesideTitle) renderCollectionIcon(headingEl.createSpan({ cls: 'mbv-card-icon' }), icons, this.app);
 		headingEl.createDiv({ cls: 'mbv-card-title', text: title, attr: { title } });
 		this.renderDetails(bodyEl, entry, config);
 
@@ -664,6 +717,7 @@ export class CollectionView extends BasesView {
 			void this.openEntry(entry, true);
 		});
 		cardEl.addEventListener('keydown', (event) => {
+			if (event.target instanceof Element && event.target.closest('a, button, input, select, textarea, .mbv-scrollbar')) return;
 			if (event.key !== 'Enter' && event.key !== ' ') return;
 			event.preventDefault();
 			void this.openEntry(entry, Boolean(Keymap.isModEvent(event)));
@@ -672,8 +726,13 @@ export class CollectionView extends BasesView {
 		return cardEl;
 	}
 
-	private addScrollbar(targetEl: HTMLElement, hostEl: HTMLElement, orientation: ScrollbarOrientation): void {
-		this.scrollbars.add(new CollectionScrollbar(targetEl, hostEl, orientation));
+	private addScrollbar(
+		targetEl: HTMLElement,
+		hostEl: HTMLElement,
+		orientation: ScrollbarOrientation,
+		observeMutations = false,
+	): void {
+		this.scrollbars.add(new CollectionScrollbar(targetEl, hostEl, orientation, observeMutations));
 	}
 
 	private isEntryLive(entry: BasesEntry): boolean {
@@ -701,7 +760,10 @@ export class CollectionView extends BasesView {
 		const api = getNotebookNavigatorApi(this.app);
 		if (!api) return;
 		this.notebookNavigatorEventsRegistered = true;
-		const refresh = (): void => this.onDataUpdated();
+		const refresh = (): void => {
+			invalidateNotebookNavigatorIconCache(this.app);
+			this.onDataUpdated();
+		};
 		const folderChanged = api.on('folder-changed', refresh);
 		const storageReady = api.on('storage-ready', refresh);
 		this.register(() => {
@@ -716,15 +778,51 @@ export class CollectionView extends BasesView {
 		if (!properties.length) return;
 
 		const detailsEl = bodyEl.createDiv({ cls: 'mbv-card-details' });
+		const valueColorPalette = this.propertyValuePalette(config);
 		for (const property of properties) {
 			const value = entry.getValue(property);
 			// False checkboxes and numeric zero are meaningful property values.
 			if (value === null) continue;
 			const rowEl = detailsEl.createDiv({ cls: 'mbv-card-detail' });
-			rowEl.createSpan({ cls: 'mbv-card-detail-label', text: this.config.getDisplayName(property) });
+			const displayName = this.config.getDisplayName(property);
+			rowEl.createSpan({ cls: 'mbv-card-detail-label', text: displayName });
 			const valueEl = rowEl.createDiv({ cls: 'mbv-card-detail-value' });
-			renderPropertyValue(valueEl, value, { app: this.app, property });
+			renderPropertyValue(valueEl, value, {
+				app: this.app,
+				property,
+				displayName,
+				valueColorPalette,
+				onBooleanChange: property.startsWith('note.')
+					? (checked) => this.updateBooleanProperty(entry, property, checked)
+					: undefined,
+			});
 		}
+	}
+
+	private propertyValuePalette(config: CollectionConfig): string[] | undefined {
+		if (!config.propertyValueColors) return undefined;
+		if (config.propertyValueColorPack === 'custom') {
+			const custom = config.propertyValueCustomColors.filter(isCssColor);
+			if (custom.length) return custom;
+		}
+		return COLOR_PACKS[config.propertyValueColorPack === 'custom' ? 'notion' : config.propertyValueColorPack];
+	}
+
+	private async updateBooleanProperty(
+		entry: BasesEntry,
+		property: BasesPropertyId,
+		checked: boolean,
+	): Promise<void> {
+		if (!property.startsWith('note.')) throw new Error('Only note properties can be edited.');
+		const file = this.app.vault.getAbstractFileByPath(entry.file.path);
+		if (!(file instanceof TFile)) throw new Error('The note is no longer available.');
+		const propertyName = property.slice('note.'.length);
+		if (!propertyName) throw new Error('The property name is empty.');
+		await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+			const existingKey = Object.keys(frontmatter)
+				.find((key) => key.toLocaleLowerCase() === propertyName.toLocaleLowerCase());
+			frontmatter[existingKey ?? propertyName] = checked;
+		});
 	}
 
 	private renderMedia(mediaEl: HTMLElement, entry: BasesEntry, resource: string | null): void {
