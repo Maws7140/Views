@@ -12,13 +12,10 @@ export interface ViewsPluginSettings {
 	/** 'property' uses startProp/endProp, 'lifespan' uses file ctime/mtime */
 	defaultDateSource: 'property' | 'lifespan';
 	tableColorsEnabled: boolean;
-	manualColorProperty: string;
-	automaticColorsEnabled: boolean;
-	automaticColorProperty: string;
 	colorPack: ColorPackId;
 	customPalette: string;
 	colorValuePills: boolean;
-	colorScalarValues: boolean;
+	tableColorDisabledProperties: string[];
 }
 
 const DEFAULT_SETTINGS: ViewsPluginSettings = {
@@ -27,13 +24,10 @@ const DEFAULT_SETTINGS: ViewsPluginSettings = {
 	defaultGroupBy: '',
 	defaultDateSource: 'property',
 	tableColorsEnabled: true,
-	manualColorProperty: 'color',
-	automaticColorsEnabled: true,
-	automaticColorProperty: 'status',
 	colorPack: 'notion',
 	customPalette: '#787774, #9f6b53, #d9730d, #cb912f, #448361, #337ea9, #9065b0, #c14c8a, #d44c47',
 	colorValuePills: true,
-	colorScalarValues: false,
+	tableColorDisabledProperties: [],
 };
 
 export default class ViewsPlugin extends Plugin {
@@ -61,8 +55,17 @@ export default class ViewsPlugin extends Plugin {
 			console.warn('[Views] Bases is not enabled in this vault.');
 		}
 
-		this.tableColors = new TableColorEnhancer(this.app, () => this.settings);
+		this.tableColors = new TableColorEnhancer(
+			this.app,
+			() => this.settings,
+			() => this.saveSettings(),
+		);
 		this.addChild(this.tableColors);
+		this.addCommand({
+			id: 'refresh-native-table-colors',
+			name: 'Refresh native table colors',
+			callback: () => this.tableColors?.refresh(),
+		});
 
 		this.addSettingTab(new TimelinePluginSettingTab(this.app, this));
 	}

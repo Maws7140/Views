@@ -7,6 +7,7 @@ import {
 	Menu,
 	QueryController,
 	setIcon,
+	SliderOption,
 	TFile,
 	ViewOption,
 } from 'obsidian';
@@ -40,7 +41,6 @@ interface CollectionConfig extends CollectionAppearanceConfig {
 	mediaProperty: BasesPropertyId | null;
 	titleProperty: BasesPropertyId | null;
 	cardWidth: number;
-	gridColumns: number;
 	gap: number;
 	aspect: CardAspect;
 	cardDirection: CardDirection;
@@ -105,7 +105,7 @@ export class CollectionView extends BasesView {
 					{
 						type: 'slider',
 						key: 'cardWidth',
-						displayName: 'Card width',
+						displayName: 'Card size',
 						default: 240,
 						min: 48,
 						max: 960,
@@ -121,23 +121,16 @@ export class CollectionView extends BasesView {
 						max: 960,
 						step: 4,
 						instant: true,
-					},
-					{
-						type: 'slider',
-						key: 'gridColumns',
-						displayName: 'Grid columns',
-						default: 4,
-						min: 1,
-						max: 8,
-						step: 1,
-						instant: true,
-					},
+						// Obsidian supports this runtime ViewOption predicate even though
+						// it is not yet declared in the public type definitions.
+						shouldHide: (config: { get(key: string): unknown }) => config.get('aspect') === 'square',
+					} as SliderOption & { shouldHide(config: { get(key: string): unknown }): boolean },
 					{
 						type: 'slider',
 						key: 'gap',
 						displayName: 'Card gap',
 						default: 16,
-						min: 4,
+						min: 0,
 						max: 32,
 						step: 2,
 						instant: true,
@@ -368,8 +361,7 @@ export class CollectionView extends BasesView {
 			mediaProperty: this.config.getAsPropertyId('mediaProperty'),
 			titleProperty: this.config.getAsPropertyId('titleProperty') ?? 'file.name',
 			cardWidth: this.numberOption('cardWidth', 240, 48, 960),
-			gridColumns: this.numberOption('gridColumns', 4, 1, 8),
-			gap: this.numberOption('gap', 16, 4, 32),
+			gap: this.numberOption('gap', 16, 0, 32),
 			// Existing portrait and landscape configs migrate to the same flexible
 			// width and height behavior they already shared.
 			aspect: aspect === 'square' ? 'square' : 'flexible',
@@ -461,7 +453,6 @@ export class CollectionView extends BasesView {
 		this.containerEl.toggleClass('media-fit-cover', config.mediaFit === 'cover');
 		this.containerEl.setCssProps({
 			'--mbv-card-width': `${config.cardWidth}px`,
-			'--mbv-grid-columns': String(config.gridColumns),
 			'--mbv-gap': `${config.gap}px`,
 			'--mbv-card-height': `${config.cardHeight}px`,
 			'--mbv-media-share': `${config.mediaShare}%`,
@@ -509,7 +500,7 @@ export class CollectionView extends BasesView {
 		let rendered = 0;
 		let loading = false;
 		const pageSize = config.layout === 'grid'
-			? Math.max(config.gridColumns * GRID_PAGE_ROWS, CARDS_PER_FRAME)
+			? this.gridPageSize(config)
 			: CAROUSEL_PAGE_SIZE;
 		const sentinelEl = railEl.createDiv({ cls: 'mbv-load-more' });
 		const labelEl = sentinelEl.createSpan({
@@ -573,6 +564,15 @@ export class CollectionView extends BasesView {
 		this.renderObservers.add(observer);
 		sectionEl.addClass('is-progressive');
 		observer.observe(sentinelEl);
+	}
+
+	private gridPageSize(config: CollectionConfig): number {
+		const style = window.getComputedStyle(this.containerEl);
+		const padding = (Number.parseFloat(style.paddingLeft) || 0) + (Number.parseFloat(style.paddingRight) || 0);
+		const available = Math.max(0, this.containerEl.clientWidth - padding);
+		const minimumCardWidth = Math.min(config.cardWidth, available || config.cardWidth);
+		const columns = Math.max(1, Math.floor((available + config.gap) / (minimumCardWidth + config.gap)));
+		return Math.max(columns * GRID_PAGE_ROWS, CARDS_PER_FRAME);
 	}
 
 	private scheduleRenderWork(): void {
@@ -677,7 +677,7 @@ export class CollectionView extends BasesView {
 		const bodyEl = cardEl.createDiv({ cls: 'mbv-card-body' });
 		const headingEl = bodyEl.createDiv({ cls: 'mbv-card-heading' });
 		if (iconBesideTitle) renderCollectionIcon(headingEl.createSpan({ cls: 'mbv-card-icon' }), icons, this.app);
-		headingEl.createDiv({ cls: 'mbv-card-title', text: title, attr: { title } });
+		headingEl.createDiv({ cls: 'mbv-card-title', text: title });
 		this.renderDetails(bodyEl, entry, config);
 
 		let pendingOpen: number | null = null;

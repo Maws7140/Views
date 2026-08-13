@@ -71,48 +71,16 @@ export class TimelinePluginSettingTab extends PluginSettingTab {
 
 		containerEl.createEl('h3', { text: 'Native table colors' });
 		containerEl.createEl('p', {
-			text: 'Enhance Obsidian’s built-in Bases table. A valid color in frontmatter always wins; otherwise Views assigns stable colors from the selected pack.',
+			text: 'Color individual property values in Obsidian’s built-in Bases table. Double-click a column header to enable or disable colors for that column.',
 		});
 
 		new Setting(containerEl)
 			.setName('Enable table colors')
-			.setDesc('Apply theme-aware row, pill, and optional cell colors to native Bases tables.')
+			.setDesc('Apply the shared property-value color system to native Bases tables without tinting entire rows.')
 			.addToggle((toggle) => toggle
 				.setValue(this.plugin.settings.tableColorsEnabled)
 				.onChange(async (value) => {
 					this.plugin.settings.tableColorsEnabled = value;
-					await this.plugin.saveSettings();
-				}));
-
-		new Setting(containerEl)
-			.setName('Frontmatter color property')
-			.setDesc('Property containing a CSS color, hex value, or name such as red, blue, or purple. Default: color.')
-			.addText((text) => text
-				.setPlaceholder('color')
-				.setValue(this.plugin.settings.manualColorProperty)
-				.onChange(async (value) => {
-					this.plugin.settings.manualColorProperty = value.trim() || 'color';
-					await this.plugin.saveSettings();
-				}));
-
-		new Setting(containerEl)
-			.setName('Automatic colors')
-			.setDesc('Assign deterministic colors when the frontmatter color property is empty.')
-			.addToggle((toggle) => toggle
-				.setValue(this.plugin.settings.automaticColorsEnabled)
-				.onChange(async (value) => {
-					this.plugin.settings.automaticColorsEnabled = value;
-					await this.plugin.saveSettings();
-				}));
-
-		new Setting(containerEl)
-			.setName('Automatic color property')
-			.setDesc('Use this frontmatter or visible table property to assign each row a stable automatic color. Default: status.')
-			.addText((text) => text
-				.setPlaceholder('status')
-				.setValue(this.plugin.settings.automaticColorProperty)
-				.onChange(async (value) => {
-					this.plugin.settings.automaticColorProperty = value.trim() || 'status';
 					await this.plugin.saveSettings();
 				}));
 
@@ -155,15 +123,6 @@ export class TimelinePluginSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
-		new Setting(containerEl)
-			.setName('Color scalar cells')
-			.setDesc('Also tint plain text and number cells. Off by default to keep tables calm.')
-			.addToggle((toggle) => toggle
-				.setValue(this.plugin.settings.colorScalarValues)
-				.onChange(async (value) => {
-					this.plugin.settings.colorScalarValues = value;
-					await this.plugin.saveSettings();
-				}));
 	}
 }
 

@@ -91,18 +91,24 @@ function renderPill(
 	const pillEl = container.createSpan({ cls: 'views-property-pill' });
 	if (tag || value instanceof TagValue) pillEl.addClass('is-tag');
 	const rawValue = value.toString().trim();
-	const color = context.valueColorPalette?.length
-		? stableColor(rawValue, context.valueColorPalette)
-		: null;
-	if (color) {
-		pillEl.addClass('has-value-color');
-		pillEl.style.setProperty('--views-property-color', color);
-	}
+	applyPropertyValueColor(pillEl, rawValue, context.valueColorPalette);
 	if (isRichValue(value)) {
 		value.renderTo(pillEl, context.app.renderContext);
 	} else {
 		pillEl.setText(value.toString());
 	}
+}
+
+/** Apply the shared Collection/Table automatic value-color treatment. */
+export function applyPropertyValueColor(
+	element: HTMLElement,
+	rawValue: string,
+	palette: string[] | undefined,
+): void {
+	const color = palette?.length ? stableColor(rawValue, palette) : null;
+	if (!color) return;
+	element.addClass('has-value-color');
+	element.style.setProperty('--views-property-color', color);
 }
 
 function renderDate(container: HTMLElement, value: DateValue, property: BasesPropertyId): void {
