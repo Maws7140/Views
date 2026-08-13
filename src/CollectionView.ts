@@ -23,6 +23,7 @@ import {
 } from './collection/appearance';
 import { ColorPackId } from './table-colors/palettes';
 import { renderPropertyValue } from './ui/PropertyValueRenderer';
+import { CollectionScrollbar, ScrollbarOrientation } from './collection/CollectionScrollbar';
 
 export const CollectionViewType = 'more-bases-collection';
 
@@ -63,6 +64,7 @@ interface RenderWork {
 
 export class CollectionView extends BasesView {
 	type = CollectionViewType;
+	private readonly scrollHostEl: HTMLElement;
 	private readonly containerEl: HTMLElement;
 	private renderGeneration = 0;
 	private renderFrame: number | null = null;
@@ -70,11 +72,13 @@ export class CollectionView extends BasesView {
 	private readonly renderObservers = new Set<IntersectionObserver>();
 	private readonly pendingCardOpens = new Set<number>();
 	private readonly cardsByPath = new Map<string, Set<HTMLElement>>();
+	private readonly scrollbars = new Set<CollectionScrollbar>();
 	private notebookNavigatorEventsRegistered = false;
 
 	constructor(controller: QueryController, parentEl: HTMLElement) {
 		super(controller);
-		this.containerEl = parentEl.createDiv({ cls: 'mbv-collection' });
+		this.scrollHostEl = parentEl.createDiv({ cls: 'mbv-collection-shell' });
+		this.containerEl = this.scrollHostEl.createDiv({ cls: 'mbv-collection' });
 		this.registerEvent(this.app.vault.on('delete', (file) => this.removeDeletedFile(file.path)));
 	}
 
@@ -432,7 +436,9 @@ export class CollectionView extends BasesView {
 			} else {
 				this.renderGroupOnDemand(sectionEl, railEl, group.entries, config, generation);
 			}
+			if (config.layout === 'carousel') this.addScrollbar(railEl, sectionEl, 'horizontal');
 		}
+		this.addScrollbar(this.containerEl, this.scrollHostEl, 'vertical');
 	}
 
 	private renderGroupOnDemand(
@@ -549,6 +555,8 @@ export class CollectionView extends BasesView {
 		}
 		for (const observer of this.renderObservers) observer.disconnect();
 		this.renderObservers.clear();
+		for (const scrollbar of this.scrollbars) scrollbar.destroy();
+		this.scrollbars.clear();
 	}
 
 	private getVisibleGroups(): BasesEntryGroup[] {
@@ -627,7 +635,7 @@ export class CollectionView extends BasesView {
 			pendingOpen = null;
 		};
 		cardEl.addEventListener('click', (event) => {
-			if (event.target instanceof Element && event.target.closest('a, button, input, select, textarea')) return;
+			if (event.target instanceof Element && event.target.closest('a, button, input, select, textarea, .mbv-scrollbar')) return;
 			cancelOpen();
 			if (event.detail > 1) return;
 			pendingOpen = window.setTimeout(() => {
@@ -638,14 +646,14 @@ export class CollectionView extends BasesView {
 			this.pendingCardOpens.add(pendingOpen);
 		});
 		cardEl.addEventListener('dblclick', (event) => {
-			if (event.target instanceof Element && event.target.closest('a, button, input, select, textarea')) return;
+			if (event.target instanceof Element && event.target.closest('a, button, input, select, textarea, .mbv-scrollbar')) return;
 			event.preventDefault();
 			event.stopPropagation();
 			cancelOpen();
 			this.showFileMenu(entry, event);
 		});
 		cardEl.addEventListener('contextmenu', (event) => {
-			if (event.target instanceof Element && event.target.closest('input, select, textarea')) return;
+			if (event.target instanceof Element && event.target.closest('input, select, textarea, .mbv-scrollbar')) return;
 			event.preventDefault();
 			cancelOpen();
 			this.showFileMenu(entry, event);
@@ -660,7 +668,12 @@ export class CollectionView extends BasesView {
 			event.preventDefault();
 			void this.openEntry(entry, Boolean(Keymap.isModEvent(event)));
 		});
+		this.addScrollbar(bodyEl, cardEl, 'vertical');
 		return cardEl;
+	}
+
+	private addScrollbar(targetEl: HTMLElement, hostEl: HTMLElement, orientation: ScrollbarOrientation): void {
+		this.scrollbars.add(new CollectionScrollbar(targetEl, hostEl, orientation));
 	}
 
 	private isEntryLive(entry: BasesEntry): boolean {

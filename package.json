@@ -1,6 +1,6 @@
 {
 	"name": "more-bases-views",
-	"version": "0.10.9",
+	"version": "0.11.0",
 	"description": "Theme-native custom views for Obsidian Bases",
 	"main": "main.js",
 	"scripts": {

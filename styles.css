@@ -550,6 +550,14 @@
 
 /* Collection view -------------------------------------------------------- */
 
+.mbv-collection-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .mbv-collection {
   --mbv-card-width: 240px;
   --mbv-grid-columns: 4;
@@ -567,66 +575,71 @@
 
 /* Collection scrollbars -------------------------------------------------- */
 
-.mbv-collection,
-.mbv-collection .mbv-rail,
-.mbv-collection .mbv-card-body {
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--mbv-card-color, var(--text-muted)) 28%, transparent) transparent;
+.mbv-scroll-host {
+  position: relative;
 }
 
-.mbv-collection:hover,
-.mbv-collection .mbv-rail:hover,
-.mbv-collection .mbv-card-body:hover {
-  scrollbar-color: color-mix(in srgb, var(--mbv-card-color, var(--text-muted)) 48%, transparent) transparent;
+.mbv-scroll-surface {
+  scrollbar-width: none;
 }
 
-.mbv-collection::-webkit-scrollbar,
-.mbv-collection .mbv-rail::-webkit-scrollbar,
-.mbv-collection .mbv-card-body::-webkit-scrollbar {
+.mbv-scroll-surface::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.mbv-scrollbar {
+  position: absolute;
+  z-index: 6;
+  display: none;
+  border-radius: 999px;
+  touch-action: none;
+  opacity: 0.48;
+  transition: opacity 120ms ease;
+}
+
+.mbv-scrollbar.is-active {
+  display: block;
+}
+
+.mbv-scrollbar.is-vertical {
+  right: 2px;
   width: 8px;
+}
+
+.mbv-scrollbar.is-horizontal {
   height: 8px;
 }
 
-.mbv-collection::-webkit-scrollbar-track,
-.mbv-collection .mbv-rail::-webkit-scrollbar-track,
-.mbv-collection .mbv-card-body::-webkit-scrollbar-track {
-  background: transparent;
+.mbv-scrollbar:hover,
+.mbv-scrollbar.is-dragging {
+  opacity: 0.92;
 }
 
-.mbv-collection::-webkit-scrollbar-thumb,
-.mbv-collection .mbv-rail::-webkit-scrollbar-thumb,
-.mbv-collection .mbv-card-body::-webkit-scrollbar-thumb {
+.mbv-scrollbar-thumb {
+  position: absolute;
   border: 2px solid transparent;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--mbv-card-color, var(--text-muted)) 28%, transparent);
+  background: color-mix(in srgb, var(--mbv-card-color, var(--text-muted)) 62%, transparent);
   background-clip: padding-box;
+  cursor: grab;
 }
 
-.mbv-collection:hover::-webkit-scrollbar-thumb,
-.mbv-collection .mbv-rail:hover::-webkit-scrollbar-thumb,
-.mbv-collection .mbv-card-body:hover::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--mbv-card-color, var(--text-muted)) 48%, transparent);
-  background-clip: padding-box;
+.mbv-scrollbar.is-dragging .mbv-scrollbar-thumb {
+  cursor: grabbing;
 }
 
-body::-webkit-scrollbar-button,
-body *::-webkit-scrollbar-button,
-body *::-webkit-scrollbar-button:single-button,
-body *::-webkit-scrollbar-button:vertical:decrement,
-body *::-webkit-scrollbar-button:vertical:increment,
-body *::-webkit-scrollbar-button:horizontal:decrement,
-body *::-webkit-scrollbar-button:horizontal:increment {
-  -webkit-appearance: none !important;
-  appearance: none !important;
-  display: none !important;
-  width: 0 !important;
-  height: 0 !important;
-  min-width: 0 !important;
-  min-height: 0 !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  border: 0 !important;
-  background: transparent !important;
+.mbv-scrollbar.is-vertical .mbv-scrollbar-thumb {
+  top: var(--mbv-scroll-thumb-position, 0);
+  width: 100%;
+  height: var(--mbv-scroll-thumb-size, 24px);
+}
+
+.mbv-scrollbar.is-horizontal .mbv-scrollbar-thumb {
+  left: var(--mbv-scroll-thumb-position, 0);
+  width: var(--mbv-scroll-thumb-size, 24px);
+  height: 100%;
 }
 
 .mbv-section {
