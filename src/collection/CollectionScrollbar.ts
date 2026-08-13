@@ -1,6 +1,8 @@
 export type ScrollbarOrientation = 'vertical' | 'horizontal';
 
 const MIN_THUMB_SIZE = 24;
+const OVERFLOW_TOLERANCE = 4;
+const SCROLL_VISIBILITY_MS = 800;
 
 export class CollectionScrollbar {
 	private readonly trackEl: HTMLElement;
@@ -8,6 +10,7 @@ export class CollectionScrollbar {
 	private readonly resizeObserver: ResizeObserver;
 	private readonly mutationObserver: MutationObserver;
 	private frame: number | null = null;
+	private scrollVisibilityTimer: number | null = null;
 	private disposed = false;
 
 	constructor(
@@ -20,7 +23,7 @@ export class CollectionScrollbar {
 		this.trackEl = hostEl.createDiv({ cls: `mbv-scrollbar is-${orientation}` });
 		this.trackEl.setAttr('aria-hidden', 'true');
 		this.thumbEl = this.trackEl.createDiv({ cls: 'mbv-scrollbar-thumb' });
-		this.targetEl.addEventListener('scroll', this.scheduleUpdate, { passive: true });
+		this.targetEl.addEventListener('scroll', this.onScroll, { passive: true });
 		this.trackEl.addEventListener('pointerdown', this.onTrackPointerDown);
 		this.thumbEl.addEventListener('pointerdown', this.onThumbPointerDown);
 		this.resizeObserver = new ResizeObserver(this.scheduleUpdate);
@@ -35,7 +38,8 @@ export class CollectionScrollbar {
 		if (this.disposed) return;
 		this.disposed = true;
 		if (this.frame !== null) window.cancelAnimationFrame(this.frame);
-		this.targetEl.removeEventListener('scroll', this.scheduleUpdate);
+		if (this.scrollVisibilityTimer !== null) window.clearTimeout(this.scrollVisibilityTimer);
+		this.targetEl.removeEventListener('scroll', this.onScroll);
 		this.trackEl.removeEventListener('pointerdown', this.onTrackPointerDown);
 		this.thumbEl.removeEventListener('pointerdown', this.onThumbPointerDown);
 		this.resizeObserver.disconnect();
@@ -43,6 +47,16 @@ export class CollectionScrollbar {
 		this.trackEl.remove();
 		this.targetEl.removeClass('mbv-scroll-surface');
 	}
+
+	private readonly onScroll = (): void => {
+		this.trackEl.addClass('is-scrolling');
+		if (this.scrollVisibilityTimer !== null) window.clearTimeout(this.scrollVisibilityTimer);
+		this.scrollVisibilityTimer = window.setTimeout(() => {
+			this.scrollVisibilityTimer = null;
+			this.trackEl.removeClass('is-scrolling');
+		}, SCROLL_VISIBILITY_MS);
+		this.scheduleUpdate();
+	};
 
 	private readonly scheduleUpdate = (): void => {
 		if (this.disposed || this.frame !== null) return;
@@ -58,8 +72,12 @@ export class CollectionScrollbar {
 		const content = this.orientation === 'vertical' ? this.targetEl.scrollHeight : this.targetEl.scrollWidth;
 		const scrollPosition = this.orientation === 'vertical' ? this.targetEl.scrollTop : this.targetEl.scrollLeft;
 		const maxScroll = Math.max(0, content - viewport);
-		this.trackEl.toggleClass('is-active', viewport > 0 && maxScroll > 1);
-		if (viewport <= 0 || maxScroll <= 1) return;
+		const hasMeaningfulOverflow = viewport > 0 && maxScroll > OVERFLOW_TOLERANCE;
+		this.trackEl.toggleClass('is-active', hasMeaningfulOverflow);
+		if (!hasMeaningfulOverflow) {
+			this.trackEl.removeClass('is-scrolling');
+			return;
+		}
 		this.positionTrack();
 		const trackLength = this.orientation === 'vertical' ? this.trackEl.clientHeight : this.trackEl.clientWidth;
 		const thumbLength = Math.max(MIN_THUMB_SIZE, trackLength * (viewport / content));
