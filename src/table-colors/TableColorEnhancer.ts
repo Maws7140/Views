@@ -1,7 +1,9 @@
-import { App, Component, Menu } from 'obsidian';
+import { Component, Menu } from 'obsidian';
 import type { ViewsPluginSettings } from '../main';
+import { RenderScheduler } from '../performance/RenderScheduler';
+import { reportPerformance } from '../performance/metrics';
 import { applyPropertyValueColor } from '../ui/PropertyValueRenderer';
-import { COLOR_PACKS, parseCustomPalette } from './palettes';
+import { resolveColorPalette } from './palettes';
 
 const BASE_ROOT = '.bases-view, .bases-embed';
 const CELL = '.bases-td[data-property], .bases-table-cell[data-property]';
@@ -9,10 +11,12 @@ const HEADER = '.bases-thead .bases-td';
 
 export class TableColorEnhancer extends Component {
 	private observer: MutationObserver | null = null;
-	private refreshQueued = false;
+	private readonly pendingCells = new Set<HTMLElement>();
+	private readonly pendingRoots = new Set<HTMLElement>();
+	private readonly scheduler = new RenderScheduler(() => this.flushPending());
+	private readonly decoratedState = new WeakMap<HTMLElement, string>();
 
 	constructor(
-		private readonly app: App,
 		private readonly getSettings: () => ViewsPluginSettings,
 		private readonly saveSettings: () => Promise<void>,
 	) {
@@ -20,7 +24,7 @@ export class TableColorEnhancer extends Component {
 	}
 
 	onload(): void {
-		this.observer = new MutationObserver(() => this.queueRefresh());
+		this.observer = new MutationObserver((records) => this.queueMutations(records));
 		this.observer.observe(document.body, {
 			childList: true,
 			subtree: true,
@@ -28,57 +32,129 @@ export class TableColorEnhancer extends Component {
 			attributes: true,
 			attributeFilter: ['data-property', 'href', 'aria-checked'],
 		});
-		this.registerEvent(this.app.workspace.on('layout-change', () => this.queueRefresh()));
-		this.registerEvent(this.app.metadataCache.on('changed', () => this.queueRefresh()));
 		this.registerDomEvent(document, 'dblclick', (event) => this.handleColumnDoubleClick(event), true);
 		this.refresh();
 	}
 
 	onunload(): void {
 		this.observer?.disconnect();
+		this.scheduler.cancel();
+		this.pendingCells.clear();
+		this.pendingRoots.clear();
 		this.clear();
 	}
 
 	refresh(): void {
+		this.scheduler.cancel();
+		this.pendingCells.clear();
+		this.pendingRoots.clear();
 		this.clear();
 		const settings = this.getSettings();
 		if (!settings.tableColorsEnabled) return;
-		document.querySelectorAll<HTMLElement>(BASE_ROOT).forEach((root) => this.decorateRoot(root, settings));
+		const palette = this.palette(settings);
+		document.querySelectorAll<HTMLElement>(BASE_ROOT).forEach((root) => this.decorateRoot(root, settings, palette));
 	}
 
-	private queueRefresh(): void {
-		if (this.refreshQueued) return;
-		this.refreshQueued = true;
-		window.requestAnimationFrame(() => {
-			this.refreshQueued = false;
-			this.refresh();
+	private queueMutations(records: MutationRecord[]): void {
+		for (const record of records) {
+			const target = record.target instanceof Element ? record.target : record.target.parentElement;
+			if (target) this.queueElement(target);
+			for (const node of Array.from(record.addedNodes)) {
+				if (node instanceof Element) this.queueElement(node);
+			}
+		}
+		if (this.pendingCells.size || this.pendingRoots.size) this.scheduler.schedule();
+	}
+
+	private queueElement(element: Element): void {
+		const cell = element.matches(CELL) ? element : element.closest(CELL);
+		if (cell instanceof HTMLElement && cell.closest(BASE_ROOT)) {
+			this.pendingCells.add(cell);
+			return;
+		}
+		if (element.matches(BASE_ROOT) && element instanceof HTMLElement) this.pendingRoots.add(element);
+		element.querySelectorAll<HTMLElement>(BASE_ROOT).forEach((root) => this.pendingRoots.add(root));
+	}
+
+	private flushPending(): void {
+		const startedAt = performance.now();
+		const settings = this.getSettings();
+		const roots = Array.from(this.pendingRoots);
+		const cells = Array.from(this.pendingCells);
+		this.pendingRoots.clear();
+		this.pendingCells.clear();
+		let scannedCells = 0;
+		let changedValues = 0;
+		if (!settings.tableColorsEnabled) {
+			for (const root of roots) this.clearWithin(root);
+			for (const cell of cells) this.clearWithin(cell);
+		} else {
+			const palette = this.palette(settings);
+			for (const root of roots) {
+				if (!root.isConnected) continue;
+				const result = this.decorateRoot(root, settings, palette);
+				scannedCells += result.scannedCells;
+				changedValues += result.changedValues;
+			}
+			for (const cell of cells) {
+				if (!cell.isConnected || roots.some((root) => root.contains(cell))) continue;
+				scannedCells += 1;
+				changedValues += this.decorateCellValues(cell, settings, palette);
+			}
+		}
+		reportPerformance('table mutation batch', startedAt, {
+			roots: roots.length,
+			cells: scannedCells,
+			changedValues,
 		});
 	}
 
-	private decorateRoot(root: HTMLElement, settings: ViewsPluginSettings): void {
-		root.querySelectorAll<HTMLElement>(CELL).forEach((cell) => this.decorateCellValues(cell, settings));
+	private decorateRoot(
+		root: HTMLElement,
+		settings: ViewsPluginSettings,
+		palette: string[],
+	): { scannedCells: number; changedValues: number } {
+		let scannedCells = 0;
+		let changedValues = 0;
+		root.querySelectorAll<HTMLElement>(CELL).forEach((cell) => {
+			scannedCells += 1;
+			changedValues += this.decorateCellValues(cell, settings, palette);
+		});
+		return { scannedCells, changedValues };
 	}
 
-	private decorateCellValues(cell: HTMLElement, settings: ViewsPluginSettings): void {
+	private decorateCellValues(cell: HTMLElement, settings: ViewsPluginSettings, palette: string[]): number {
 		const propertyId = cell.dataset.property?.trim() ?? '';
-		if (!propertyId || propertyId === 'file.name' || this.isColumnDisabled(propertyId, settings)) return;
-		const palette = this.palette(settings);
+		if (
+			!propertyId
+			|| propertyId === 'file.name'
+			|| this.isColumnDisabled(propertyId, settings)
+			|| !settings.colorValuePills
+		) {
+			this.clearWithin(cell);
+			return 0;
+		}
 		// Editable note tag/list properties use multi-select pills, while the
 		// read-only core `file.tags` property renders literal anchor.tag elements.
 		const pills = cell.querySelectorAll<HTMLElement>('.multi-select-pill, a.tag');
-		if (pills.length && settings.colorValuePills) {
-			pills.forEach((pill) => {
-				const value = pill.querySelector<HTMLElement>('.multi-select-pill-content')?.textContent?.trim()
-					?? pill.textContent?.trim()
-					?? '';
-				this.applyPillColor(pill, value, palette);
-			});
-		}
+		let changed = 0;
+		pills.forEach((pill) => {
+			const value = pill.querySelector<HTMLElement>('.multi-select-pill-content')?.textContent?.trim()
+				?? pill.textContent?.trim()
+				?? '';
+			if (this.applyPillColor(pill, propertyId, value, palette)) changed += 1;
+		});
+		return changed;
 	}
 
-	private applyPillColor(pill: HTMLElement, value: string, palette: string[]): void {
+	private applyPillColor(pill: HTMLElement, propertyId: string, value: string, palette: string[]): boolean {
+		const state = `${propertyId}\u0000${value}\u0000${palette.join(',')}`;
+		if (this.decoratedState.get(pill) === state && pill.hasClass('has-value-color')) return false;
+		this.clearElement(pill);
 		pill.addClass('views-colored-pill');
 		applyPropertyValueColor(pill, value, palette);
+		this.decoratedState.set(pill, state);
+		return true;
 	}
 
 	private isColumnDisabled(propertyId: string, settings = this.getSettings()): boolean {
@@ -133,20 +209,29 @@ export class TableColorEnhancer extends Component {
 	}
 
 	private palette(settings: ViewsPluginSettings): string[] {
-		if (settings.colorPack === 'custom') {
-			const custom = parseCustomPalette(settings.customPalette);
-			if (custom.length) return custom;
-		}
-		return COLOR_PACKS[settings.colorPack === 'custom' ? 'notion' : settings.colorPack];
+		return resolveColorPalette(settings.colorPack, settings.customPalette);
 	}
 
 	private clear(): void {
 		document.querySelectorAll<HTMLElement>('.views-colored-row, .views-colored-pill, .views-colored-cell').forEach((element) => {
-			element.removeClass('views-colored-row', 'views-colored-pill', 'views-colored-cell', 'has-value-color');
-			element.style.removeProperty('--views-row-color');
-			element.style.removeProperty('--views-pill-color');
-			element.style.removeProperty('--views-cell-color');
-			element.style.removeProperty('--views-property-color');
+			this.clearElement(element);
 		});
+	}
+
+	private clearWithin(container: Element): void {
+		if (container instanceof HTMLElement && container.matches('.views-colored-row, .views-colored-pill, .views-colored-cell')) {
+			this.clearElement(container);
+		}
+		container.querySelectorAll<HTMLElement>('.views-colored-row, .views-colored-pill, .views-colored-cell')
+			.forEach((element) => this.clearElement(element));
+	}
+
+	private clearElement(element: HTMLElement): void {
+		element.removeClass('views-colored-row', 'views-colored-pill', 'views-colored-cell', 'has-value-color');
+		element.style.removeProperty('--views-row-color');
+		element.style.removeProperty('--views-pill-color');
+		element.style.removeProperty('--views-cell-color');
+		element.style.removeProperty('--views-property-color');
+		this.decoratedState.delete(element);
 	}
 }

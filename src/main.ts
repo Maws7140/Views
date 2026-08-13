@@ -56,7 +56,6 @@ export default class ViewsPlugin extends Plugin {
 		}
 
 		this.tableColors = new TableColorEnhancer(
-			this.app,
 			() => this.settings,
 			() => this.saveSettings(),
 		);

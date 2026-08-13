@@ -14,6 +14,19 @@ export function parseCustomPalette(value: string): string[] {
 		.filter((color) => isCssColor(color));
 }
 
+/** Resolve and validate a palette once per settings or render revision. */
+export function resolveColorPalette(
+	pack: ColorPackId,
+	customValues: string | readonly string[],
+	fallbackToDefault = true,
+): string[] {
+	if (pack !== 'custom') return COLOR_PACKS[pack];
+	const custom = typeof customValues === 'string'
+		? parseCustomPalette(customValues)
+		: customValues.filter((color) => isCssColor(color));
+	return custom.length ? [...custom] : (fallbackToDefault ? COLOR_PACKS.notion : []);
+}
+
 export function isCssColor(value: string): boolean {
 	const normalized = normalizeColor(value);
 	return Boolean(normalized && CSS.supports('color', normalized));

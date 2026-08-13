@@ -1,5 +1,5 @@
 import { App, BasesEntry, BasesPropertyId, EventRef, TFolder, getIcon, setIcon } from 'obsidian';
-import { COLOR_PACKS, ColorPackId, isCssColor, normalizeColor, stableColor } from '../table-colors/palettes';
+import { ColorPackId, isCssColor, normalizeColor, resolveColorPalette, stableColor } from '../table-colors/palettes';
 
 export type CollectionColorMode = 'none' | 'property' | 'automatic' | 'property-auto';
 export type AutomaticColorSource = 'title' | 'folder' | 'property';
@@ -23,7 +23,7 @@ interface FolderMetadata {
 	icon?: string;
 }
 
-interface NotebookNavigatorApi {
+export interface NotebookNavigatorApi {
 	isStorageReady(): boolean;
 	metadata: {
 		getFolderMeta(folder: TFolder): FolderMetadata | null;
@@ -118,6 +118,7 @@ export function resolveCardColor(
 	config: CollectionAppearanceConfig,
 	title: string,
 	app?: App,
+	automaticPalette?: string[],
 ): string | null {
 	if (config.colorMode === 'none') return null;
 	if (config.colorMode === 'property' || config.colorMode === 'property-auto') {
@@ -132,13 +133,14 @@ export function resolveCardColor(
 		if (config.colorMode === 'property') return null;
 	}
 
-	return stableColor(automaticColorSeed(entry, config, title), automaticColorPalette(config));
+	return stableColor(
+		automaticColorSeed(entry, config, title),
+		automaticPalette ?? automaticColorPalette(config),
+	);
 }
 
 export function automaticColorPalette(config: CollectionAppearanceConfig): string[] {
-	return config.colorPack === 'custom'
-		? config.customColors.filter(isCssColor)
-		: COLOR_PACKS[config.colorPack];
+	return resolveColorPalette(config.colorPack, config.customColors, false);
 }
 
 export function automaticColorSeed(
@@ -218,6 +220,7 @@ export function renderCollectionIcon(container: HTMLElement, rawIcons: string[],
 
 async function renderFirstAvailableIcon(container: HTMLElement, rawIcons: string[], app: App): Promise<void> {
 	for (const rawIcon of rawIcons) {
+		if (!container.isConnected) return;
 		const icon = rawIcon.trim();
 		if (!icon) continue;
 		const emoji = icon.startsWith('emoji:') ? icon.slice(6) : icon;
@@ -236,6 +239,7 @@ async function renderFirstAvailableIcon(container: HTMLElement, rawIcons: string
 		const externalIcon = parseExternalIcon(icon);
 		if (externalIcon && await renderExternalIcon(container, externalIcon, app)) return;
 	}
+	if (!container.isConnected) return;
 	setIcon(container, 'folder-closed');
 }
 
@@ -281,6 +285,7 @@ async function renderExternalIcon(
 ): Promise<boolean> {
 	try {
 		const metadata = await getExternalIconMetadata(app, descriptor.provider);
+		if (!container.isConnected) return false;
 		const unicode = metadata.get(descriptor.identifier);
 		if (!unicode) return false;
 		const codePoint = Number.parseInt(unicode.replace(/^0x/i, ''), 16);

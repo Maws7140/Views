@@ -19,6 +19,8 @@ import {
 } from 'obsidian';
 import { stableColor } from '../table-colors/palettes';
 
+const dateFormatters = new Map<string, Intl.DateTimeFormat>();
+
 export interface PropertyValueRenderContext {
 	app: App;
 	property: BasesPropertyId;
@@ -191,11 +193,18 @@ function parseDate(raw: string): Date | null {
 
 function formatDate(value: Date, includesTime: boolean): string {
 	const currentYear = new Date().getFullYear();
+	const includesYear = value.getFullYear() !== currentYear;
+	const key = `${includesTime ? 'date-time' : 'date'}:${includesYear ? 'year' : 'current'}`;
 	const options: Intl.DateTimeFormatOptions = {
 		month: 'short',
 		day: 'numeric',
-		...(value.getFullYear() === currentYear ? {} : { year: 'numeric' as const }),
+		...(includesYear ? { year: 'numeric' as const } : {}),
 		...(includesTime ? { hour: 'numeric' as const, minute: '2-digit' as const } : {}),
 	};
-	return new Intl.DateTimeFormat(undefined, options).format(value);
+	let formatter = dateFormatters.get(key);
+	if (!formatter) {
+		formatter = new Intl.DateTimeFormat(undefined, options);
+		dateFormatters.set(key, formatter);
+	}
+	return formatter.format(value);
 }

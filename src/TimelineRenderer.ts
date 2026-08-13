@@ -1,6 +1,7 @@
 import { setIcon } from 'obsidian';
 import { BasicDateScale } from './logic/dateScale';
 import { virtualizeItems } from './logic/virtualize';
+import { RenderScheduler } from './performance/RenderScheduler';
 import type { TimelineConfig, TimelineDensity, TimelineItem, TimelineZoomLevel } from './types';
 
 export interface TimelineRendererData {
@@ -85,7 +86,11 @@ export class TimelineRenderer {
     minute: '2-digit',
   });
   
-  private pendingRenderFrame: number | null = null;
+  private readonly scrollRenderScheduler = new RenderScheduler(() => this.render(false));
+
+  private readonly handleScrollBound = () => {
+    this.scrollRenderScheduler.schedule();
+  };
 
   private handleWheelBound = (event: WheelEvent) => {
     if (!(event.ctrlKey || event.metaKey)) return;
@@ -153,6 +158,14 @@ export class TimelineRenderer {
     }
   };
 
+  private readonly handleCanvasKeyDownBound = (event: KeyboardEvent) => {
+    const target = event.target as HTMLElement;
+    if (!target.classList.contains('tl-bar') && !target.classList.contains('tl-dot')) return;
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    target.click();
+  };
+
   constructor(private hostEl: HTMLElement, private callbacks: TimelineRendererCallbacks = {}) {
     this.rootEl = this.createDom();
   }
@@ -198,16 +211,9 @@ export class TimelineRenderer {
 
     // Interactions
     this.scrollAreaEl.addEventListener('wheel', this.handleWheelBound, { passive: false });
+    this.scrollAreaEl.addEventListener('scroll', this.handleScrollBound, { passive: true });
     this.scrollAreaEl.addEventListener('click', this.handleCanvasClickBound);
-    this.scrollAreaEl.addEventListener('keydown', (e: KeyboardEvent) => {
-        const target = e.target as HTMLElement;
-        if (target.classList.contains('tl-bar') || target.classList.contains('tl-dot')) {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            target.click();
-          }
-        }
-    });
+    this.scrollAreaEl.addEventListener('keydown', this.handleCanvasKeyDownBound);
     root.addEventListener('keydown', this.handleKeyDownBound);
 
     // No Date Drawer
@@ -589,8 +595,11 @@ export class TimelineRenderer {
   }
 
   destroy(): void { 
-      if (this.pendingRenderFrame != null) { cancelAnimationFrame(this.pendingRenderFrame); this.pendingRenderFrame = null; } 
+      this.scrollRenderScheduler.cancel();
       this.scrollAreaEl.removeEventListener('wheel', this.handleWheelBound); 
+      this.scrollAreaEl.removeEventListener('scroll', this.handleScrollBound);
+      this.scrollAreaEl.removeEventListener('click', this.handleCanvasClickBound);
+      this.scrollAreaEl.removeEventListener('keydown', this.handleCanvasKeyDownBound);
       this.rootEl.removeEventListener('keydown', this.handleKeyDownBound); 
       this.collapsedLanes.clear(); 
       this.cachedLanes = []; 

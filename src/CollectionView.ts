@@ -18,14 +18,16 @@ import {
 	FolderIconSource,
 	getNotebookNavigatorApi,
 	invalidateNotebookNavigatorIconCache,
+	NotebookNavigatorApi,
 	parseFolderIconRules,
 	renderCollectionIcon,
 	resolveCardColor,
 	resolveCardIcons,
 } from './collection/appearance';
-import { COLOR_PACKS, ColorPackId, isCssColor } from './table-colors/palettes';
+import { ColorPackId, resolveColorPalette } from './table-colors/palettes';
 import { renderPropertyValue } from './ui/PropertyValueRenderer';
 import { CollectionScrollbar, ScrollbarOrientation } from './collection/CollectionScrollbar';
+import { reportPerformance } from './performance/metrics';
 
 export const CollectionViewType = 'more-bases-collection';
 
@@ -68,6 +70,19 @@ interface RenderWork {
 	run: () => void;
 }
 
+interface DetailProperty {
+	property: BasesPropertyId;
+	displayName: string;
+}
+
+interface CollectionRenderContext {
+	config: CollectionConfig;
+	detailProperties: DetailProperty[];
+	cardPalette: string[];
+	valuePalette: string[] | undefined;
+	notebookNavigator: NotebookNavigatorApi | null;
+}
+
 export class CollectionView extends BasesView {
 	type = CollectionViewType;
 	private readonly scrollHostEl: HTMLElement;
@@ -80,6 +95,7 @@ export class CollectionView extends BasesView {
 	private readonly pendingCardOpens = new Set<number>();
 	private readonly cardsByPath = new Map<string, Set<HTMLElement>>();
 	private readonly scrollbars = new Set<CollectionScrollbar>();
+	private readonly cardScrollbars = new WeakMap<HTMLElement, CollectionScrollbar>();
 	private notebookNavigatorEventsRegistered = false;
 
 	constructor(controller: QueryController, parentEl: HTMLElement) {
@@ -437,8 +453,10 @@ export class CollectionView extends BasesView {
 	}
 
 	private render(config: CollectionConfig): void {
+		const startedAt = performance.now();
 		const generation = this.renderGeneration;
-		if (config.folderIconSource === 'notebook-navigator') this.registerNotebookNavigatorEvents();
+		const context = this.createRenderContext(config);
+		if (context.notebookNavigator) this.registerNotebookNavigatorEvents(context.notebookNavigator);
 		this.containerEl.empty();
 		this.cardsByPath.clear();
 		this.containerEl.toggleClass('is-grid', config.layout === 'grid');
@@ -480,23 +498,47 @@ export class CollectionView extends BasesView {
 
 			if (this.data.data.length < LARGE_COLLECTION_THRESHOLD) {
 				for (const entry of group.entries) {
-					if (this.isEntryLive(entry)) this.renderCard(railEl, entry, config);
+					if (this.isEntryLive(entry)) this.renderCard(railEl, entry, context);
 				}
 			} else {
-				this.renderGroupOnDemand(sectionEl, railEl, group.entries, config, generation);
+				this.renderGroupOnDemand(sectionEl, railEl, group.entries, context, generation);
 			}
 			if (config.layout === 'carousel') this.addScrollbar(railEl, sectionEl, 'horizontal', true);
 		}
 		this.addScrollbar(this.containerEl, this.scrollHostEl, 'vertical', true);
+		reportPerformance('collection synchronous render', startedAt, {
+			groups: groups.length,
+			mountedCards: this.containerEl.querySelectorAll('.mbv-card').length,
+			scrollbars: this.scrollbars.size,
+		});
+	}
+
+	private createRenderContext(config: CollectionConfig): CollectionRenderContext {
+		const excluded = new Set([config.mediaProperty, config.titleProperty].filter(Boolean));
+		const detailProperties = this.config.getOrder()
+			.filter((property) => !excluded.has(property))
+			.map((property) => ({ property, displayName: this.config.getDisplayName(property) }));
+		return {
+			config,
+			detailProperties,
+			cardPalette: resolveColorPalette(config.colorPack, config.customColors, false),
+			valuePalette: config.propertyValueColors
+				? resolveColorPalette(config.propertyValueColorPack, config.propertyValueCustomColors)
+				: undefined,
+			notebookNavigator: config.folderIconSource === 'notebook-navigator'
+				? getNotebookNavigatorApi(this.app)
+				: null,
+		};
 	}
 
 	private renderGroupOnDemand(
 		sectionEl: HTMLElement,
 		railEl: HTMLElement,
 		entries: BasesEntry[],
-		config: CollectionConfig,
+		context: CollectionRenderContext,
 		generation: number,
 	): void {
+		const config = context.config;
 		let rendered = 0;
 		let loading = false;
 		const pageSize = config.layout === 'grid'
@@ -528,7 +570,7 @@ export class CollectionView extends BasesView {
 					generation,
 					run: () => {
 						if (!this.isEntryLive(entry)) return;
-						const cardEl = this.renderCard(railEl, entry, config);
+						const cardEl = this.renderCard(railEl, entry, context);
 						railEl.insertBefore(cardEl, sentinelEl);
 					},
 				});
@@ -639,9 +681,10 @@ export class CollectionView extends BasesView {
 		headerEl.createSpan({ cls: 'mbv-section-count', text: String(count), attr: { 'aria-label': `${count} items` } });
 	}
 
-	private renderCard(parentEl: HTMLElement, entry: BasesEntry, config: CollectionConfig): HTMLElement {
+	private renderCard(parentEl: HTMLElement, entry: BasesEntry, context: CollectionRenderContext): HTMLElement {
+		const config = context.config;
 		const title = this.getTitle(entry, config.titleProperty);
-		const icons = resolveCardIcons(entry, config, getNotebookNavigatorApi(this.app));
+		const icons = resolveCardIcons(entry, config, context.notebookNavigator);
 		const mediaResource = config.mediaProperty ? this.getMediaResource(entry, config.mediaProperty) : null;
 		const iconInPreview = icons.length > 0 && (
 			config.iconPlacement === 'preview'
@@ -656,7 +699,7 @@ export class CollectionView extends BasesView {
 			attr: { role: 'listitem', tabindex: '0', 'aria-label': title },
 		});
 		this.trackCard(entry.file.path, cardEl);
-		const color = resolveCardColor(entry, config, title, this.app);
+		const color = resolveCardColor(entry, config, title, this.app, context.cardPalette);
 		if (color) {
 			cardEl.addClass('has-card-color');
 			cardEl.setCssProps({ '--mbv-card-color': color });
@@ -678,7 +721,7 @@ export class CollectionView extends BasesView {
 		const headingEl = bodyEl.createDiv({ cls: 'mbv-card-heading' });
 		if (iconBesideTitle) renderCollectionIcon(headingEl.createSpan({ cls: 'mbv-card-icon' }), icons, this.app);
 		headingEl.createDiv({ cls: 'mbv-card-title', text: title });
-		this.renderDetails(bodyEl, entry, config);
+		this.renderDetails(bodyEl, entry, context);
 
 		let pendingOpen: number | null = null;
 		const cancelOpen = (): void => {
@@ -722,7 +765,8 @@ export class CollectionView extends BasesView {
 			event.preventDefault();
 			void this.openEntry(entry, Boolean(Keymap.isModEvent(event)));
 		});
-		this.addScrollbar(bodyEl, cardEl, 'vertical');
+		const scrollbar = this.addScrollbar(bodyEl, cardEl, 'vertical');
+		this.cardScrollbars.set(cardEl, scrollbar);
 		return cardEl;
 	}
 
@@ -731,8 +775,10 @@ export class CollectionView extends BasesView {
 		hostEl: HTMLElement,
 		orientation: ScrollbarOrientation,
 		observeMutations = false,
-	): void {
-		this.scrollbars.add(new CollectionScrollbar(targetEl, hostEl, orientation, observeMutations));
+	): CollectionScrollbar {
+		const scrollbar = new CollectionScrollbar(targetEl, hostEl, orientation, observeMutations);
+		this.scrollbars.add(scrollbar);
+		return scrollbar;
 	}
 
 	private isEntryLive(entry: BasesEntry): boolean {
@@ -751,14 +797,20 @@ export class CollectionView extends BasesView {
 	private removeDeletedFile(path: string): void {
 		const cards = this.cardsByPath.get(path);
 		if (!cards) return;
-		for (const card of cards) card.remove();
+		for (const card of cards) {
+			const scrollbar = this.cardScrollbars.get(card);
+			if (scrollbar) {
+				scrollbar.destroy();
+				this.scrollbars.delete(scrollbar);
+				this.cardScrollbars.delete(card);
+			}
+			card.remove();
+		}
 		this.cardsByPath.delete(path);
 	}
 
-	private registerNotebookNavigatorEvents(): void {
+	private registerNotebookNavigatorEvents(api: NotebookNavigatorApi): void {
 		if (this.notebookNavigatorEventsRegistered) return;
-		const api = getNotebookNavigatorApi(this.app);
-		if (!api) return;
 		this.notebookNavigatorEventsRegistered = true;
 		const refresh = (): void => {
 			invalidateNotebookNavigatorIconCache(this.app);
@@ -772,40 +824,27 @@ export class CollectionView extends BasesView {
 		});
 	}
 
-	private renderDetails(bodyEl: HTMLElement, entry: BasesEntry, config: CollectionConfig): void {
-		const excluded = new Set([config.mediaProperty, config.titleProperty].filter(Boolean));
-		const properties = this.config.getOrder().filter((property) => !excluded.has(property));
-		if (!properties.length) return;
+	private renderDetails(bodyEl: HTMLElement, entry: BasesEntry, context: CollectionRenderContext): void {
+		if (!context.detailProperties.length) return;
 
 		const detailsEl = bodyEl.createDiv({ cls: 'mbv-card-details' });
-		const valueColorPalette = this.propertyValuePalette(config);
-		for (const property of properties) {
+		for (const { property, displayName } of context.detailProperties) {
 			const value = entry.getValue(property);
 			// False checkboxes and numeric zero are meaningful property values.
 			if (value === null) continue;
 			const rowEl = detailsEl.createDiv({ cls: 'mbv-card-detail' });
-			const displayName = this.config.getDisplayName(property);
 			rowEl.createSpan({ cls: 'mbv-card-detail-label', text: displayName });
 			const valueEl = rowEl.createDiv({ cls: 'mbv-card-detail-value' });
 			renderPropertyValue(valueEl, value, {
 				app: this.app,
 				property,
 				displayName,
-				valueColorPalette,
+				valueColorPalette: context.valuePalette,
 				onBooleanChange: property.startsWith('note.')
 					? (checked) => this.updateBooleanProperty(entry, property, checked)
 					: undefined,
 			});
 		}
-	}
-
-	private propertyValuePalette(config: CollectionConfig): string[] | undefined {
-		if (!config.propertyValueColors) return undefined;
-		if (config.propertyValueColorPack === 'custom') {
-			const custom = config.propertyValueCustomColors.filter(isCssColor);
-			if (custom.length) return custom;
-		}
-		return COLOR_PACKS[config.propertyValueColorPack === 'custom' ? 'notion' : config.propertyValueColorPack];
 	}
 
 	private async updateBooleanProperty(
