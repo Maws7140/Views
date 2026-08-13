@@ -18,7 +18,7 @@ export default class ViewsPlugin extends Plugin {
 		if (VIEW_DEFINITIONS.map((definition) => definition.register(this)).some((registered) => !registered)) {
 			console.warn('[Views] Bases is not enabled in this vault.');
 		}
-		this.viewTabs = new BaseViewTabsEnhancer(() => this.settings);
+		this.viewTabs = new BaseViewTabsEnhancer(this.app, () => this.settings);
 		this.addChild(this.viewTabs);
 
 		this.tableColors = new TableColorEnhancer(
@@ -26,16 +26,6 @@ export default class ViewsPlugin extends Plugin {
 			() => this.saveSettings(),
 		);
 		this.addChild(this.tableColors);
-		this.addCommand({
-			id: 'refresh-native-table-colors',
-			name: 'Refresh native table colors',
-			callback: () => this.tableColors?.refresh(),
-		});
-		this.addCommand({
-			id: 'refresh-horizontal-view-tabs',
-			name: 'Refresh horizontal Base view tabs',
-			callback: () => this.viewTabs?.refresh(),
-		});
 		this.addSettingTab(new TimelinePluginSettingTab(this.app, this));
 	}
 

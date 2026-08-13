@@ -1,4 +1,4 @@
-import { Component } from 'obsidian';
+import { App, Component, TFile } from 'obsidian';
 import type { ViewsPluginSettings } from '../settings/settings';
 import { BaseViewTabsController } from './BaseViewTabsController';
 
@@ -14,11 +14,18 @@ export class BaseViewTabsEnhancer extends Component {
 		}
 	});
 
-	constructor(private readonly getSettings: () => ViewsPluginSettings) {
+	constructor(
+		private readonly app: App,
+		private readonly getSettings: () => ViewsPluginSettings,
+	) {
 		super();
 	}
 
 	onload(): void {
+		this.registerEvent(this.app.vault.on('modify', (file) => {
+			if (!(file instanceof TFile) || file.extension !== 'base') return;
+			for (const controller of this.controllers.values()) controller.scheduleRefresh();
+		}));
 		this.observer = new MutationObserver((records) => this.handleMutations(records));
 		this.observer.observe(document.body, {
 			childList: true,
@@ -68,6 +75,7 @@ export class BaseViewTabsEnhancer extends Component {
 	private attach(header: HTMLElement): void {
 		if (this.controllers.has(header) || !header.isConnected) return;
 		const controller = BaseViewTabsController.create(
+			this.app,
 			header,
 			(element, callback) => this.observeResize(element, callback),
 			(element, callback) => this.unobserveResize(element, callback),

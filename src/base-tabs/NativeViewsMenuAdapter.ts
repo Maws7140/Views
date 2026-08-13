@@ -19,24 +19,6 @@ function serialized<T>(task: () => Promise<T>): Promise<T> {
 export class NativeViewsMenuAdapter {
 	constructor(private readonly buttonEl: HTMLElement) {}
 
-	capture(): Promise<NativeViewTabModel[]> {
-		return serialized(async () => {
-			const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-			document.body.addClass(PROBE_CLASS);
-			try {
-				const menu = await this.openMenu();
-				if (!menu) return [];
-				const model = this.readModel(menu);
-				this.buttonEl.click();
-				await this.waitForClose(menu);
-				return model;
-			} finally {
-				document.body.removeClass(PROBE_CLASS);
-				if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
-			}
-		});
-	}
-
 	activate(target: NativeViewTabModel): Promise<boolean> {
 		return serialized(async () => {
 			document.body.addClass(PROBE_CLASS);

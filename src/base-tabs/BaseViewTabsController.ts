@@ -1,4 +1,5 @@
-import { setIcon } from 'obsidian';
+import { App, setIcon } from 'obsidian';
+import { BaseViewModelReader } from './BaseViewModelReader';
 import { NativeViewTabModel, NativeViewsMenuAdapter } from './NativeViewsMenuAdapter';
 
 const NATIVE_ITEM_SELECTOR = '.bases-toolbar-item.bases-toolbar-views-menu';
@@ -10,6 +11,7 @@ export class BaseViewTabsController {
 	private readonly nativeButtonEl: HTMLElement;
 	private readonly tabsEl: HTMLElement;
 	private readonly adapter: NativeViewsMenuAdapter;
+	private readonly modelReader: BaseViewModelReader;
 	private model: NativeViewTabModel[] = [];
 	private tabButtons: HTMLButtonElement[] = [];
 	private moreButton: HTMLButtonElement | null = null;
@@ -18,6 +20,7 @@ export class BaseViewTabsController {
 	private disposed = false;
 
 	static create(
+		app: App,
 		headerEl: HTMLElement,
 		observeResize: (element: Element, callback: () => void) => void,
 		unobserveResize: (element: Element, callback: () => void) => void,
@@ -27,6 +30,7 @@ export class BaseViewTabsController {
 		const nativeButtonEl = headerEl.querySelector<HTMLElement>(NATIVE_BUTTON_SELECTOR);
 		if (!toolbarEl || !nativeItemEl || !nativeButtonEl) return null;
 		return new BaseViewTabsController(
+			app,
 			headerEl,
 			toolbarEl,
 			nativeItemEl,
@@ -37,6 +41,7 @@ export class BaseViewTabsController {
 	}
 
 	private constructor(
+		app: App,
 		readonly headerEl: HTMLElement,
 		toolbarEl: HTMLElement,
 		nativeItemEl: HTMLElement,
@@ -48,6 +53,7 @@ export class BaseViewTabsController {
 		this.nativeItemEl = nativeItemEl;
 		this.nativeButtonEl = nativeButtonEl;
 		this.adapter = new NativeViewsMenuAdapter(nativeButtonEl);
+		this.modelReader = new BaseViewModelReader(app);
 		this.tabsEl = document.createElement('div');
 		this.tabsEl.className = 'views-view-tabs';
 		this.tabsEl.setAttribute('role', 'tablist');
@@ -78,7 +84,8 @@ export class BaseViewTabsController {
 
 	private async refresh(): Promise<void> {
 		if (this.disposed || !this.nativeButtonEl.isConnected) return;
-		const model = await this.adapter.capture();
+		const currentName = this.nativeButtonEl.querySelector<HTMLElement>('.text-button-label')?.textContent?.trim() ?? '';
+		const model = await this.modelReader.read(this.headerEl, currentName);
 		if (this.disposed || !this.headerEl.isConnected) return;
 		if (!model.length) {
 			this.disableEnhancement();
