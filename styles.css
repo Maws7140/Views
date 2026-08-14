@@ -2531,13 +2531,29 @@
   text-overflow: ellipsis;
 }
 
-/* A row is one line. `.views-property-value.is-list` wraps and declares
-   `overflow: visible`, which out-specifies the plain `.mbv-ray-prop` rule and
-   let a list escape the row to be clipped by the pane. Three classes here so
-   the shared rule cannot win on either count. */
+/* A property holding several values stacks rather than truncating, and the row
+   grows to fit it. Forcing one line was a workaround for the properties box
+   being 220px wide: four tags had nowhere to go across, so they went down and
+   the row became four lines tall. With the box taking the row's real width they
+   lay out across it and wrap only when they actually run out of room.
+
+   The three classes matter: `.views-property-value.is-list` declares
+   `overflow: visible` and would otherwise out-specify `.mbv-ray-prop` and let a
+   list escape the row entirely. */
 .mbv-ray-prop.views-property-value.is-list {
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   overflow: hidden;
+}
+
+/* A stacked property sets the row's height, so the row's parts align to the top
+   rather than floating in the middle of it. */
+.mbv-ray-row:has(.mbv-ray-prop.is-list) {
+  align-items: start;
+}
+
+.mbv-ray-row:has(.mbv-ray-prop.is-list) .mbv-ray-row-main {
+  padding-block-start: 1px;
 }
 
 .mbv-ray-prop .views-property-item,
