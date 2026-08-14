@@ -1014,14 +1014,33 @@ export class TimelineRenderer {
   private handleFit(): void { if (!this.currentData) return; this.render(true); }
   private scrollToToday(): void { const today = Date.now(); this.jumpToDate(today); }
   
-  jumpToDate(timestamp: number): void { 
+  /**
+   * Puts a date in the middle of the viewport. Both Today and the date picker
+   * come through here.
+   *
+   * The canvas starts at `scale.startTs`, so moving the origin only centres a
+   * date for a viewport sitting at the canvas origin. This used to set the
+   * origin and leave `scrollLeft` wherever the user had scrolled to, which
+   * shifted every bar sideways by the scroll distance and landed on the target
+   * only from an unscrolled timeline. Off the origin it looked like the buttons
+   * did nothing at all.
+   *
+   * The scroll is queued rather than assigned: `render` applies it once the
+   * track widths exist, and until they do the scroll range is still the old one
+   * and the assignment would be clamped away.
+   */
+  jumpToDate(timestamp: number): void {
       const isSingleLane = this.rootEl.hasClass('tl-single-lane');
       const sidebarWidth = isSingleLane ? 0 : SIDEBAR_WIDTH;
       const containerWidth = this.scrollAreaEl.clientWidth || 800;
       const viewportWidth = Math.max(100, containerWidth - sidebarWidth);
-      const halfDays = (viewportWidth / this.scale.pxPerDay) / 2; 
-      this.scale.startTs = timestamp - halfDays * MS_PER_DAY; 
-      this.render(false); 
+      const halfDays = (viewportWidth / this.scale.pxPerDay) / 2;
+      this.scale.startTs = timestamp - halfDays * MS_PER_DAY;
+      this.pendingScrollLeft = 0;
+      this.render(false);
+      // The viewport is persisted from the scroll handler, and a scroll that was
+      // already at 0 fires no event, so the new origin is reported here.
+      this.callbacks.onViewportChanged?.(this.getViewportState());
   }
   
   private toggleDensity(): void { const current = this.densityOverride ?? this.currentConfig?.density ?? 'comfortable'; this.densityOverride = current === 'comfortable' ? 'compact' : 'comfortable'; this.render(false); }

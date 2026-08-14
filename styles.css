@@ -2342,3 +2342,232 @@
 .mbv-heatmap .is-hidden {
   display: none;
 }
+
+/* ==========================================================================
+   Raycast view
+
+   A command palette rather than a table: the search field owns the focus for
+   the life of the view, the results are rows under it, and the keyboard is the
+   primary input. The footer states the key language rather than leaving it to
+   be discovered.
+   ========================================================================== */
+
+.mbv-raycast-host {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+
+.mbv-ray {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background-color: var(--background-primary);
+}
+
+.mbv-ray-search {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  padding: var(--size-4-3) var(--size-4-4);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.mbv-ray-search-icon {
+  display: flex;
+  flex: none;
+  color: var(--text-muted);
+}
+
+/* The field carries no box of its own: the row it sits in is the box, which is
+   what makes it read as a command bar instead of a form input. */
+.mbv-ray-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-normal);
+  font-size: var(--font-ui-large);
+}
+
+.mbv-ray-input:focus,
+.mbv-ray-input:focus-visible {
+  border: 0;
+  outline: none;
+  box-shadow: none;
+}
+
+.mbv-ray-results {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: var(--size-4-2);
+}
+
+.mbv-ray-group {
+  padding: var(--size-4-2) var(--size-4-2) var(--size-2-2);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* The row is a grid, not a flex line, and the reason is the whole bug this
+   view kept having.
+ 
+   In flex, a row's width is negotiated between its two halves: the title block
+   grew into the free space, the properties took what was left, and when that was
+   short they were clipped. Which half gave way depended on grow, shrink and
+   basis interacting, and three separate attempts to tune those produced three
+   different wrong answers.
+ 
+   Two grid tracks state the intent directly. The properties column is sized to
+   its content and takes what it needs. The title column takes the rest, and
+   `minmax(0, 1fr)` lets it collapse all the way to nothing before the browser
+   will consider taking a pixel from the properties. A long name can therefore
+   make the title short but can never clip a date. */
+.mbv-ray-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+  align-items: center;
+  column-gap: var(--size-4-3);
+  padding: var(--size-2-3) var(--size-4-2);
+  border-radius: var(--radius-m);
+  cursor: var(--cursor);
+}
+
+.mbv-ray.is-compact .mbv-ray-row {
+  padding: var(--size-2-1) var(--size-4-2);
+}
+
+.mbv-ray-row:hover {
+  background-color: var(--background-modifier-hover);
+}
+
+/* Selection is keyboard state, not hover, so it has to stay legible while the
+   pointer sits somewhere else entirely. It carries that on the surface alone,
+   with no accent bar down the edge. */
+.mbv-ray-row.is-selected,
+.mbv-ray-row.is-selected:hover {
+  background-color: var(--background-modifier-active-hover, var(--background-modifier-hover));
+}
+
+.mbv-ray-row.is-selected .mbv-ray-title {
+  font-weight: var(--font-medium);
+}
+
+.mbv-ray-row-main {
+  display: flex;
+  align-items: baseline;
+  gap: var(--size-4-2);
+  min-width: 0;
+}
+
+/* Both halves of the title block ellipsise. Either one can be long, and a flex
+   item will not shrink below its text without being told it may. */
+.mbv-ray-title,
+.mbv-ray-subtitle {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mbv-ray-title {
+  color: var(--text-normal);
+}
+
+/* The folder yields before the name does: it is context, the name is identity. */
+.mbv-ray-subtitle {
+  flex-shrink: 4;
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+}
+
+.mbv-ray-row-props {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  justify-self: end;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Measured, not guessed. Property values are short and stop meaning anything
+   the moment they lose characters, so none of them shrink. The grid above is
+   what guarantees they do not have to. */
+.mbv-ray-prop {
+  flex: 0 0 auto;
+  min-width: 0;
+  max-width: 24ch;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Compound, not descendant. `renderPropertyValue` puts `views-property-value`
+   on the element it is handed, so the value class and `mbv-ray-prop` are the
+   same element and a descendant selector matches nothing at all. */
+.mbv-ray-prop.views-property-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A row is one line. `.views-property-value.is-list` wraps and declares
+   `overflow: visible`, which out-specifies the plain `.mbv-ray-prop` rule and
+   let a list escape the row to be clipped by the pane. Three classes here so
+   the shared rule cannot win on either count. */
+.mbv-ray-prop.views-property-value.is-list {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.mbv-ray-prop .views-property-item,
+.mbv-ray-prop .views-value-chip,
+.mbv-ray-prop .views-property-pill {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.mbv-ray-notice {
+  padding: var(--size-4-4) var(--size-4-2);
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  text-align: center;
+}
+
+.mbv-ray-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-4-3);
+  padding: var(--size-2-3) var(--size-4-4);
+  border-top: 1px solid var(--background-modifier-border);
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+}
+
+.mbv-ray-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--size-2-2);
+}
+
+.mbv-ray-key {
+  padding: 1px var(--size-2-2);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background-color: var(--background-secondary);
+  color: var(--text-muted);
+  font-family: var(--font-interface);
+}

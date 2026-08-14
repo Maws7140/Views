@@ -1,6 +1,7 @@
 import { CollectionView, CollectionViewType } from '../CollectionView';
 import { HeatmapView, HeatmapViewType } from '../HeatmapView';
 import { KanbanView, KanbanViewType } from '../KanbanView';
+import { RaycastView, RaycastViewType } from '../RaycastView';
 import { TimelineView, TimelineViewType } from '../TimelineView';
 import type ViewsPlugin from '../main';
 
@@ -33,6 +34,14 @@ export const VIEW_DEFINITIONS: readonly ViewDefinition[] = [
 			icon: 'lucide-grid-3x-3',
 			factory: (controller, containerEl) => new HeatmapView(controller, containerEl),
 			options: HeatmapView.getViewOptions,
+		}),
+	},
+	{
+		register: (plugin) => plugin.registerBasesView(RaycastViewType, {
+			name: 'Views · Raycast',
+			icon: 'lucide-search',
+			factory: (controller, containerEl) => new RaycastView(plugin, controller, containerEl),
+			options: RaycastView.getViewOptions,
 		}),
 	},
 	{
