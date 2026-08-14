@@ -3,12 +3,10 @@ import {
     BasesEntryGroup,
     BasesPropertyId,
     BasesView,
-    DateValue,
     Notice,
     QueryController,
     ViewOption,
     TFile,
-    type ListValue,
 } from 'obsidian';
 import { TimelineRenderer, type TimelineRendererData } from './TimelineRenderer';
 import {
@@ -20,6 +18,7 @@ import {
 	type CollectionAppearanceConfig,
 } from './collection/appearance';
 import { EntryInteractions, type EntryTarget } from './ui/EntryInteractions';
+import { extractTimestamp } from './logic/dateValue';
 import { isPropertyColorEnabled } from './settings/settings';
 import { parseCustomPalette, resolveColorPalette } from './table-colors/palettes';
 import { resolvePropertyValueColor } from './ui/PropertyValueRenderer';
@@ -611,80 +610,13 @@ export class TimelineView extends BasesView {
 	/**
 	 * Extract a date from a property value.
 	 * This is only called in 'property' mode - lifespan mode uses ctime/mtime directly.
+	 *
+	 * The reading itself lives in `logic/dateValue` so the Heatmap resolves a date
+	 * exactly the way a bar does.
 	 */
 	private extractDate(entry: BasesEntry, property: BasesPropertyId | null): number | null {
-		if (!property) {
-			return null;
-		}
-
-		const value = entry.getValue(property);
-		if (!value) {
-			return null;
-		}
-
-		// Try DateValue first (Bases native date type)
-		if (this.isDateValue(value)) {
-			return this.parseDateValue(value.dateOnly());
-		}
-
-		// Try extracting from list/array
-		const dateFromList = this.extractDateFromUnknown(value);
-		if (dateFromList) {
-			return this.parseDateValue(dateFromList.dateOnly());
-		}
-
-		// Try parsing as string
-		const str = value.toString();
-		if (str) {
-			const parsed = this.parseDateString(str);
-			if (parsed != null) {
-				return parsed;
-			}
-		}
-
-		return null;
+		return extractTimestamp(entry, property);
 	}
-
-	private parseDateValue(value: DateValue): number | null {
-		const iso = value.toString();
-		const timestamp = Date.parse(iso);
-		return Number.isFinite(timestamp) ? timestamp : null;
-	}
-
-	private isDateValue(value: unknown): value is DateValue {
-		return Boolean(value && typeof (value as DateValue).dateOnly === 'function');
-	}
-
-	private parseDateString(input: string): number | null {
-		const timestamp = Date.parse(input);
-		return Number.isFinite(timestamp) ? timestamp : null;
-	}
-
-  private extractDateFromUnknown(value: unknown): DateValue | null {
-    if (!value) return null;
-    const maybeList = value as ListValue;
-    if (typeof maybeList.length === 'function' && typeof maybeList.get === 'function') {
-      for (let i = 0; i < maybeList.length(); i++) {
-        const item = maybeList.get(i);
-        if (this.isDateValue(item)) {
-          return item;
-        }
-      }
-    }
-
-    if (typeof (value as { toArray?: () => unknown[] }).toArray === 'function') {
-      const array = (value as { toArray: () => unknown[] }).toArray();
-      if (Array.isArray(array)) {
-        for (const item of array) {
-          if (this.isDateValue(item)) {
-            return item;
-          }
-        }
-      }
-    }
-
-    return null;
-  }
 }
 
 function isTimelineZoomLevel(value: string): value is TimelineConfig['zoomLevel'] {

@@ -187,14 +187,19 @@ export class TimelineRenderer {
       this.adjustZoom(direction as 1 | -1, this.pivotFromClientX(event.clientX));
       return;
     }
-    // A timeline reads horizontally, so an unmodified wheel with no vertical
-    // travel available should pan rather than do nothing.
-    const wantsHorizontal = event.shiftKey || Math.abs(event.deltaX) > Math.abs(event.deltaY);
-    if (!wantsHorizontal) return;
-    const delta = event.shiftKey && !event.deltaX ? event.deltaY : event.deltaX;
-    if (!delta) return;
+    // A real horizontal wheel is left to the browser. `.tl-scroll-area` is
+    // `overflow: auto`, so the scrolling already works, and it works better than
+    // anything done here: it runs on the compositor and keeps a trackpad's
+    // easing and momentum. Cancelling those events and assigning `scrollLeft`
+    // per event replaced that with one discrete jump per event, which is exactly
+    // what horizontal panning felt like. Vertical was never intercepted, which
+    // is why only one axis stuttered.
+    if (event.deltaX) return;
+    // Shift+wheel is the mouse's way of asking for the other axis, and there is
+    // no deltaX in it to hand over. Discrete clicks, so nothing to smooth.
+    if (!event.shiftKey || !event.deltaY) return;
     event.preventDefault();
-    this.scrollAreaEl.scrollLeft += delta;
+    this.scrollAreaEl.scrollLeft += event.deltaY;
   };
 
   private pivotFromClientX(clientX: number): number {

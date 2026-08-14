@@ -45,7 +45,9 @@ export function renderPropertyValue(
 		renderList(container, value, context);
 		return;
 	}
-	if (!(value instanceof TagValue)) {
+	// A scalar takes its pill on an inner span, not on the container. See
+	// `renderValueChip`.
+	if (!(value instanceof TagValue) && !isScalarValue(value)) {
 		applyPropertyValuePill(container, value, context.valueColorPalette);
 	}
 	if (value instanceof DateValue) {
@@ -58,7 +60,7 @@ export function renderPropertyValue(
 	}
 	if (value instanceof NumberValue) {
 		container.addClass('is-number');
-		container.setText(value.toString());
+		renderValueChip(container, value, context);
 		return;
 	}
 	if (value instanceof DurationValue) {
@@ -76,7 +78,35 @@ export function renderPropertyValue(
 	}
 
 	container.addClass('is-text');
-	container.setText(value.toString());
+	renderValueChip(container, value, context);
+}
+
+/**
+ * Everything that ends up as bare text in a container of the view's own making,
+ * rather than in an element Obsidian rendered for it.
+ */
+function isScalarValue(value: Value): boolean {
+	return !(value instanceof DateValue)
+		&& !(value instanceof BooleanValue)
+		&& !(value instanceof DurationValue)
+		&& !(value instanceof TagValue)
+		&& !isRichValue(value);
+}
+
+/**
+ * A tag is its own element inside the cell, so colouring it produces a chip
+ * around the text. A scalar has no such element, and colouring the container
+ * put the chip on the whole cell, which is stretched by its row and so came out
+ * as a slab rather than something that hugs its word.
+ *
+ * Wrapping the text in a span gives a scalar the structure a tag already has.
+ * The native views reached the same conclusion first, in
+ * `TableColorEnhancer.ensureValueChip`; this is the matching half for the views
+ * the plugin renders itself.
+ */
+function renderValueChip(container: HTMLElement, value: Value, context: PropertyValueRenderContext): void {
+	const chipEl = container.createSpan({ cls: 'views-value-chip', text: value.toString() });
+	applyPropertyValuePill(chipEl, value, context.valueColorPalette);
 }
 
 function renderList(container: HTMLElement, value: ListValue, context: PropertyValueRenderContext): void {

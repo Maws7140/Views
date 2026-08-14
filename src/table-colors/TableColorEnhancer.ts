@@ -16,6 +16,10 @@ const HEADER = '.bases-thead .bases-td';
 const NOTE_PROPERTY = '.metadata-property[data-property-key]';
 const NOTE_VALUE = '.metadata-property-value';
 const VALUE_PILL = '.multi-select-pill, a.tag';
+// The value itself rather than a wrapper around it, so the chip goes outside it.
+const CHIP_LEAF = 'input, textarea, select, a, img, svg';
+// A value holding one of these keeps Obsidian's DOM, and gets no chip at all.
+const CHIP_BLOCKER = 'input, textarea, select, img, svg, div, ul, ol, table';
 
 export class TableColorEnhancer extends Component {
 	private observer: MutationObserver | null = null;
@@ -99,12 +103,19 @@ export class TableColorEnhancer extends Component {
 				if (node instanceof Element && !this.isOwnView(node)) this.queueElement(node);
 			}
 		}
-		if (this.pendingCells.size || this.pendingRoots.size || this.pendingNoteProperties.size) this.scheduler.schedule();
+		if (
+			this.pendingCells.size
+			|| this.pendingRoots.size
+			|| this.pendingNoteProperties.size
+			// Queued list items used to be collected and then never scheduled, so a
+			// list view repainted only when something else happened to ask for a pass.
+			|| this.pendingListItems.size
+		) this.scheduler.schedule();
 	}
 
 	/** Views' own view roots paint themselves and never need decorating here. */
 	private isOwnView(element: Element): boolean {
-		return element.closest('.tl-root, .mbv-collection-shell, .mbv-kanban') !== null;
+		return element.closest('.tl-root, .mbv-collection-shell, .mbv-kanban, .mbv-heatmap') !== null;
 	}
 
 	private queueElement(element: Element): void {
@@ -121,6 +132,17 @@ export class TableColorEnhancer extends Component {
 		if (cell instanceof HTMLElement && cell.closest(BASE_ROOT)) {
 			this.pendingCells.add(cell);
 			return;
+		}
+		// A scrolling table swaps whole rows in and out, so what arrives here is a
+		// row, or the body that holds one, with the cells *inside* it. Looking only
+		// upwards for a cell finds nothing in that case and the new rows are never
+		// decorated, which is why colors dropped out of a table as it scrolled.
+		//
+		// Guarded by the enclosing Base so the scan cannot cost anything outside
+		// one: every keystroke in the editor reaches this method too, and a
+		// `querySelectorAll` per mutation there would be pure waste.
+		if (element.closest(BASE_ROOT)) {
+			element.querySelectorAll<HTMLElement>(CELL).forEach((descendant) => this.pendingCells.add(descendant));
 		}
 		const listItem = element.matches(LIST_ITEM) ? element : element.closest(LIST_ITEM);
 		if (listItem instanceof HTMLElement && listItem.closest(BASE_ROOT)) {
@@ -226,6 +248,19 @@ export class TableColorEnhancer extends Component {
 			this.clearWithin(cell);
 			return 0;
 		}
+		// A scrolling table asks for this cell on every frame, and the work below
+		// rewraps the value in a fresh chip, which is itself a mutation, which asks
+		// for the cell again. Left unguarded that is a repaint loop, and it shows as
+		// the whole column flickering while the table scrolls.
+		//
+		// The signature is the cell's own, not the chip's: a chip is replaced on
+		// every rebuild, so a state keyed on it can never recognise a cell it has
+		// already done. Whether the decoration is *currently present* is part of the
+		// signature, so a rebuild that discards it reads as a change and is redone,
+		// while a frame where nothing moved costs one string compare and no DOM.
+		const signature = this.cellSignature(cell, propertyId, palette);
+		if (this.decoratedState.get(cell) === signature) return 0;
+
 		// Editable note tag/list properties use multi-select pills, while the
 		// read-only core `file.tags` property renders literal anchor.tag elements.
 		const pills = cell.querySelectorAll<HTMLElement>(VALUE_PILL);
@@ -247,24 +282,35 @@ export class TableColorEnhancer extends Component {
 			if (target && value && this.applyCellColor(target, propertyId, value, palette)) changed += 1;
 			else if (target?.hasClass('views-colored-pill')) this.clearElement(target);
 		}
+		// Recomputed rather than reused: the pass above is what put the decoration
+		// there, so the signature taken before it describes the cell as it was.
+		this.decoratedState.set(cell, this.cellSignature(cell, propertyId, palette));
 		return changed;
 	}
 
 	/**
-	 * A tag is its own element, so colouring it produces a chip around the text.
-	 * A scalar value has no such element, and colouring the container produced a
-	 * chip the size of the whole cell. This gives scalars the same structure:
-	 * one span around the text, which is what actually carries the pill.
-	 *
-	 * Only plain text is wrapped. Anything holding links, inputs, or embedded
-	 * markup keeps Obsidian's own DOM untouched.
+	 * What a cell would have to change for its decoration to need redoing: the
+	 * property it belongs to, the palette in force, the text it renders, and
+	 * whether it is still wearing the decoration a previous pass gave it.
 	 */
+	private cellSignature(cell: HTMLElement, propertyId: string, palette: string[]): string {
+		const text = (cell.textContent ?? '').trim();
+		const decorated = cell.querySelector('.views-colored-pill') ? '1' : '0';
+		return `${propertyId} ${text} ${decorated} ${palette.join(',')}`;
+	}
+
 	/**
-	 * Finds the element that actually holds the text, which is what a tag is.
+	 * Finds the element the pill should be painted on, which is always an element
+	 * that hugs the value's own text.
+	 *
+	 * A `.multi-select-pill` and an `a.tag` already are that element, and never
+	 * reach here. Everything else arrives as text sitting loose in a table cell,
+	 * so a span is put around it. The one thing this must never do is hand back a
+	 * container: a cell is as wide as its column, so a pill painted on one comes
+	 * out as a full-width slab with the text centred in it.
+	 *
 	 * Obsidian wraps a rendered value in one or more single-child elements, so
-	 * checking only the direct children found markup instead of text and left
-	 * the whole cell carrying the chip, which is why text values came out as
-	 * one fixed-width slab while tags hugged their text.
+	 * the wrappers are walked through first to reach the text.
 	 */
 	private valueChipTarget(valueEl: HTMLElement): HTMLElement | null {
 		let current = valueEl;
@@ -274,29 +320,42 @@ export class TableColorEnhancer extends Component {
 			const child = children[0];
 			// Only descend through a wrapper that adds nothing but nesting.
 			if ((current.textContent ?? '').trim() !== (child.textContent ?? '').trim()) break;
-			if (child.matches('input, textarea, select, a, img, svg')) break;
+			// A link is the value, not a wrapper around it. Descending into one
+			// would put the chip inside the link instead of around it.
+			//
+			// A chip this method placed on an earlier pass stops the walk for the
+			// same reason: descending through it would wrap its contents in a
+			// second chip, and again on every pass after that.
+			if (child.matches(CHIP_LEAF) || child.hasClass('views-value-chip')) break;
 			current = child;
 		}
-		if (current !== valueEl && !current.children.length) return current;
 		return this.ensureValueChip(current);
 	}
 
+	/**
+	 * Wraps whatever the element holds in one span, and returns it.
+	 *
+	 * The nodes are **moved** into the span rather than the text being copied out
+	 * of them. That is what lets a linked value get a chip: `Phase` renders as an
+	 * anchor, and the previous version refused to wrap anything that was not a
+	 * bare text node, so the pill fell back to the cell and became a slab. Moving
+	 * the nodes keeps the anchor live, click and all.
+	 */
 	private ensureValueChip(valueEl: HTMLElement): HTMLElement | null {
 		const existing = valueEl.querySelector<HTMLElement>(':scope > .views-value-chip');
 		if (existing) {
-			// Obsidian re-renders a cell by replacing its children, so a stale
-			// chip left beside fresh text has to give way to a new one.
+			// Obsidian re-renders a cell by replacing its children, so a stale chip
+			// left beside fresh content has to give way to a new one.
 			if (valueEl.childNodes.length === 1) return existing;
+			while (existing.firstChild) valueEl.insertBefore(existing.firstChild, existing);
 			existing.remove();
 		}
 		if (!valueEl.childNodes.length) return null;
-		for (const node of Array.from(valueEl.childNodes)) {
-			if (node.nodeType !== Node.TEXT_NODE) return null;
-		}
-		const text = valueEl.textContent?.trim() ?? '';
-		if (!text) return null;
-		const chipEl = createSpan({ cls: 'views-value-chip', text });
-		valueEl.empty();
+		if (!(valueEl.textContent ?? '').trim()) return null;
+		// Anything interactive or block-level keeps Obsidian's own DOM untouched.
+		if (valueEl.querySelector(CHIP_BLOCKER)) return null;
+		const chipEl = createSpan({ cls: 'views-value-chip' });
+		while (valueEl.firstChild) chipEl.appendChild(valueEl.firstChild);
 		valueEl.appendChild(chipEl);
 		return chipEl;
 	}

@@ -735,14 +735,38 @@
   background: var(--background-primary);
 }
 
-/* The column head is a `.views-property-pill`, so its shape, padding, radius,
-   and colour all come from the shared pill rules. Only the column geometry is
-   set here; nothing about the chip's appearance is duplicated. */
+/* The column header owns its appearance outright. It is not a
+   `.views-property-pill`: a header names a section of the board rather than
+   holding one of a note's values, and at full column width the pill's stadium
+   shape read as a lozenge. Everything the pill used to supply is declared here,
+   so there is no shared rule to override and no file-order dependency. */
 .mbv-kanban-column-head {
+  display: flex;
+  align-items: center;
   gap: var(--size-2-2);
   flex: 0 0 var(--mbv-kanban-column-width);
   width: var(--mbv-kanban-column-width);
+  min-width: 0;
+  padding: var(--size-2-2) var(--size-4-2);
+  overflow: hidden;
+  border: var(--border-width) solid var(--background-modifier-border-hover);
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--background-secondary-alt) 72%, transparent);
+  line-height: 1;
   font-weight: var(--font-medium);
+}
+
+/* The column's value tints its header, matching the tint its cells carry. */
+.mbv-kanban-column-head.has-value-color {
+  color: color-mix(in srgb, var(--views-property-color) 55%, var(--text-normal));
+  border-color: color-mix(in srgb, var(--views-property-color) 32%, transparent);
+  background: color-mix(in srgb, var(--views-property-color) 18%, var(--background-primary));
+}
+
+.theme-dark .mbv-kanban-column-head.has-value-color {
+  color: color-mix(in srgb, var(--views-property-color) 38%, var(--text-normal));
+  background: color-mix(in srgb, var(--views-property-color) 24%, var(--background-primary));
 }
 
 /* The status dot the reference puts inside each column pill. */
@@ -814,9 +838,19 @@
   color: var(--text-muted);
 }
 
-/* Also a `.views-property-pill`; only the weight differs. */
+/* Also a `.views-property-pill`, and the only one that can be uncoloured: a lane
+   heading names a column whether or not the value resolved a colour, so it keeps
+   a neutral surface where a value would simply be plain text. */
 .mbv-kanban-lane-chip {
+  /* A heading keeps the lane head's own size. Tag sizing is for values, and the
+     pill rule would otherwise shrink this to `--tag-size`. */
+  font-size: inherit;
   font-weight: var(--font-medium);
+}
+
+.mbv-kanban-lane-chip:not(.has-value-color) {
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--background-secondary-alt) 72%, transparent);
 }
 
 .mbv-kanban-lane-head.is-collapsed .mbv-kanban-lane-chip {
@@ -1442,21 +1476,48 @@
   color: var(--text-normal);
 }
 
-/* One chip geometry for every colored value, taken from Obsidian's own tag
-   variables, so a text value, a list item, a tag, and a multi-select pill are
-   the same shape and size wherever they appear. */
-.views-property-pill {
+/* A pill exists only to carry an automatic colour, so there is no uncoloured
+   pill surface to style: a value with no colour is plain text. The one element
+   that wears the class without a colour is the Kanban lane chip, which is a
+   heading rather than a value and carries its own neutral surface. */
+
+/* Two element types already come out of Obsidian wearing a finished pill, and
+   both are excluded here so we never restyle them:
+
+   - `.tag`, drawn by `a.tag`
+   - `.multi-select-pill`, Obsidian's own editable-value pill
+
+   This rule is for the values that arrive with no pill of their own, a scalar
+   or a linked value in a table cell, and **a tag is what it reproduces**, from
+   the `--tag-*` variables, declaration for declaration. `a.tag` states:
+   background-color, border, border-radius, corner-shape, color, font-size,
+   font-weight, text-decoration, padding, line-height 1. Colour and background
+   are omitted here because the pill only ever exists to carry a value colour,
+   which `.has-value-color` supplies; everything else is geometry and is copied.
+
+   The reference is `Misc/proper tags screenshot`: a coloured pill, the value's
+   colour behind it and a light tint of the same hue for the text. No font-size
+   is declared, so a chip is the size of the value it replaced and of the pills
+   in that screenshot. `--tag-*` and `--pill-*` are the same numbers anyway;
+   Obsidian defines each `--pill-*` as its `--tag-*` counterpart. */
+.views-property-pill:not(.tag):not(.multi-select-pill) {
   display: inline-flex;
+  box-sizing: border-box;
   align-items: center;
+  width: fit-content;
   min-width: 0;
   max-width: 100%;
-  padding: var(--tag-padding-y, 0.25em) var(--tag-padding-x, 0.65em);
+  height: auto;
+  min-height: 0;
+  margin: 0;
+  padding: var(--tag-padding-y) var(--tag-padding-x);
   overflow: hidden;
-  border: var(--border-width) solid var(--background-modifier-border-hover);
-  border-radius: var(--tag-radius, 2em);
-  color: var(--text-muted);
-  background: color-mix(in srgb, var(--background-secondary-alt) 72%, transparent);
+  border: var(--tag-border-width) solid var(--tag-border-color);
+  border-radius: var(--tag-radius);
+  corner-shape: var(--tag-corner-shape);
+  font-weight: var(--tag-weight);
   line-height: 1;
+  text-decoration: var(--tag-decoration);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1465,16 +1526,23 @@
   color: var(--text-normal);
 }
 
-/* Obsidian sizes its value containers at `width: 100%; height: 100%`, so a
-   scalar value turned the whole cell into one enormous stadium. Scoped to the
-   marker class rather than to specific containers, because which element the
-   renderer puts the value in differs per view type. The chip hugs its text;
-   the surrounding cell keeps its own hit area. */
+/* A tag rendered *inside* one of our chips must not draw a second one. This
+   never touches a standalone tag carrying the pill itself, which is
+   `.views-property-pill.tag` and not a descendant. */
+.views-property-pill .tag {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: inherit;
+  background: none;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+/* Sizing now lives in `.views-property-pill`, which every colored value carries.
+   What is left here is the flex-item behaviour a chip needs when its parent
+   happens to be a flex container, which the pill rule cannot state for itself. */
 .views-colored-pill {
-  width: fit-content;
-  max-width: 100%;
-  height: auto;
-  min-height: 0;
   align-self: center;
   flex: none;
 }
@@ -1491,18 +1559,9 @@
   white-space: nowrap;
 }
 
-/* Multi-select pills carry Bases' own zero-padding pill variables, which made
-   them a different shape from every other colored value. */
-.multi-select-pill.views-colored-pill {
-  --pill-padding-x: var(--tag-padding-x, 0.65em);
-  --pill-padding-y: var(--tag-padding-y, 0.25em);
-  --pill-radius: var(--tag-radius, 2em);
-  padding: var(--tag-padding-y, 0.25em) var(--tag-padding-x, 0.65em);
-}
-
-.multi-select-pill.views-colored-pill .multi-select-pill-content {
-  margin-inline-start: 0;
-}
+/* Obsidian's own pill is left exactly as Obsidian draws it: no padding, gap,
+   line box, max-width or remove-button override lives here any more. It takes a
+   value colour and nothing else. It is the shape everything else copies. */
 
 .views-property-pill.has-value-color {
   color: color-mix(in srgb, var(--views-property-color) 55%, var(--text-normal));
@@ -1513,6 +1572,17 @@
 .theme-dark .views-property-pill.has-value-color {
   color: color-mix(in srgb, var(--views-property-color) 38%, var(--text-normal));
   background: color-mix(in srgb, var(--views-property-color) 24%, var(--background-primary));
+}
+
+/* The colour above lands on the pill, and every property type that draws its
+   value inside a child element would otherwise ignore it: `.metadata-input-longtext`
+   declares `color: var(--metadata-input-text-color)`, `.multi-select-pill-content`
+   and the link and input wrappers each declare their own, and a declaration on
+   the element always beats a colour inherited from an ancestor. That is why a
+   text property kept its default text inside a coloured pill while the pill
+   itself was tinted. Anything inside a pill takes the pill's colour. */
+.views-property-pill.has-value-color * {
+  color: inherit;
 }
 
 .views-property-pill a,
@@ -1969,4 +2039,306 @@
   max-height: min(56vh, 640px);
   overflow-y: auto;
   border-top: var(--border-width) solid var(--background-modifier-border);
+}
+
+/* Heatmap
+   ------------------------------------------------------------------------- */
+
+.mbv-heatmap-host {
+  container-type: inline-size;
+  width: 100%;
+}
+
+.mbv-heatmap {
+  --mbv-heat-cell: 11px;
+  --mbv-heat-gap: 3px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+  padding: var(--size-4-3);
+}
+
+.mbv-heat-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--size-4-3);
+}
+
+/* min-width lets the grid column shrink below its content width so the
+   horizontal scroll stays inside it instead of pushing the period column out. */
+.mbv-heat-main {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--size-4-2);
+}
+
+.mbv-heat-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--size-4-3);
+  flex-wrap: wrap;
+}
+
+.mbv-heat-total {
+  color: var(--text-normal);
+  font-size: var(--font-ui-medium);
+}
+
+.mbv-heat-periods {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--size-2-2);
+}
+
+.mbv-heat-stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--size-2-2);
+  padding-bottom: var(--size-2-2);
+}
+
+.mbv-heat-step-label {
+  color: var(--text-normal);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-medium);
+}
+
+.mbv-heat-step {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--size-2-1);
+  border: 0;
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.mbv-heat-step .svg-icon {
+  width: var(--icon-s);
+  height: var(--icon-s);
+}
+
+.mbv-heat-step:hover:not(:disabled) {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+/* Disabled rather than hidden, so the row keeps its width at the ends of the data. */
+.mbv-heat-step:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.mbv-heat-period {
+  padding: var(--size-2-2) var(--size-4-3);
+  border: 0;
+  border-radius: var(--radius-m);
+  color: var(--text-muted);
+  background: transparent;
+  box-shadow: none;
+  font-size: var(--font-ui-smaller);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.mbv-heat-period:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.mbv-heat-period.is-active {
+  color: var(--text-on-accent);
+  background: var(--interactive-accent);
+}
+
+/* A narrow leaf cannot afford a column beside the grid, so the buttons fall
+   back to a wrapping row under the block. */
+@container (max-width: 420px) {
+  .mbv-heat-layout {
+    flex-direction: column;
+  }
+
+  .mbv-heat-periods {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+}
+
+.mbv-heat-notice {
+  padding: var(--size-4-2) var(--size-4-3);
+  border: var(--border-width) solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  background: var(--background-secondary);
+  font-size: var(--font-ui-smaller);
+}
+
+.mbv-heat-body {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--size-2-2);
+}
+
+.mbv-heat-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-2-2);
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* The weekday column sits beside the scroll region, so it stays put while the
+   grid scrolls under the month labels. */
+.mbv-heat-weekdays {
+  display: grid;
+  grid-template-rows: repeat(7, var(--mbv-heat-cell));
+  gap: var(--mbv-heat-gap);
+  /* Clears the month label row above the grid. */
+  padding-top: calc(var(--font-ui-smaller) + var(--size-2-2));
+}
+
+.mbv-heat-weekday {
+  display: flex;
+  align-items: center;
+  height: var(--mbv-heat-cell);
+  padding-right: var(--size-2-2);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.mbv-heat-months {
+  display: grid;
+  gap: var(--mbv-heat-gap);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  line-height: 1;
+}
+
+.mbv-heat-month {
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.mbv-heat-grid {
+  display: grid;
+  gap: var(--mbv-heat-gap);
+}
+
+.mbv-heat-column {
+  display: grid;
+  grid-template-rows: repeat(7, var(--mbv-heat-cell));
+  gap: var(--mbv-heat-gap);
+}
+
+.mbv-heat-cell {
+  width: var(--mbv-heat-cell);
+  height: var(--mbv-heat-cell);
+  border-radius: max(2px, calc(var(--mbv-heat-cell) * 0.2));
+  background: var(--background-modifier-border);
+  outline: var(--border-width) solid transparent;
+  outline-offset: -1px;
+}
+
+/* Outside the period. No path, so it can never resolve to a file. */
+.mbv-heat-cell.is-void {
+  background: transparent;
+}
+
+.mbv-heat-cell[data-path] {
+  cursor: pointer;
+}
+
+.mbv-heat-cell[data-path]:hover,
+.mbv-heat-cell[data-path]:focus-visible {
+  outline-color: var(--text-normal);
+}
+
+/* The lower levels mix toward the theme background so the ramp reads in light
+   and dark without a second palette, the same treatment a card colour gets. */
+.mbv-heat-cell[data-level="1"] {
+  background: color-mix(in srgb, var(--mbv-heat-color) 55%, var(--background-primary));
+}
+
+.mbv-heat-cell[data-level="2"] {
+  background: color-mix(in srgb, var(--mbv-heat-color) 78%, var(--background-primary));
+}
+
+.mbv-heat-cell[data-level="3"],
+.mbv-heat-cell[data-level="4"],
+.mbv-heat-cell[data-level="5"],
+.mbv-heat-cell[data-level="6"],
+.mbv-heat-cell[data-level="7"],
+.mbv-heat-cell[data-level="8"],
+.mbv-heat-cell[data-level="9"] {
+  background: var(--mbv-heat-color);
+}
+
+.mbv-heat-legend {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--size-2-3);
+  flex-wrap: wrap;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.mbv-heat-legend-item {
+  display: flex;
+  align-items: center;
+  gap: var(--size-2-1);
+}
+
+.mbv-heat-legend-label {
+  white-space: nowrap;
+}
+
+.mbv-heat-legend-end {
+  color: var(--text-faint);
+}
+
+.mbv-heat-tip {
+  position: absolute;
+  z-index: var(--layer-tooltip);
+  transform: translate(-50%, calc(-100% - var(--size-2-3)));
+  max-width: 260px;
+  padding: var(--size-2-2) var(--size-4-2);
+  border: var(--border-width) solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  color: var(--text-normal);
+  background: var(--background-secondary);
+  box-shadow: var(--shadow-s);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.4;
+  pointer-events: none;
+}
+
+.mbv-heat-tip-summary {
+  color: var(--text-normal);
+}
+
+.mbv-heat-tip-note,
+.mbv-heat-tip-more {
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mbv-heatmap .is-hidden {
+  display: none;
 }

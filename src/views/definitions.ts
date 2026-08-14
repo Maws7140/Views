@@ -1,4 +1,5 @@
 import { CollectionView, CollectionViewType } from '../CollectionView';
+import { HeatmapView, HeatmapViewType } from '../HeatmapView';
 import { KanbanView, KanbanViewType } from '../KanbanView';
 import { TimelineView, TimelineViewType } from '../TimelineView';
 import type ViewsPlugin from '../main';
@@ -23,6 +24,15 @@ export const VIEW_DEFINITIONS: readonly ViewDefinition[] = [
 			icon: 'lucide-square-kanban',
 			factory: (controller, containerEl) => new KanbanView(plugin, controller, containerEl),
 			options: KanbanView.getViewOptions,
+		}),
+	},
+	{
+		register: (plugin) => plugin.registerBasesView(HeatmapViewType, {
+			name: 'Views · Heatmap',
+			// Obsidian's bundle spells it with the second hyphen, not Lucide's `grid-3x3`.
+			icon: 'lucide-grid-3x-3',
+			factory: (controller, containerEl) => new HeatmapView(controller, containerEl),
+			options: HeatmapView.getViewOptions,
 		}),
 	},
 	{
