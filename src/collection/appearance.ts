@@ -1,4 +1,14 @@
-import { App, BasesEntry, BasesPropertyId, EventRef, TFolder, getIcon, setIcon } from 'obsidian';
+import {
+	App,
+	BasesEntry,
+	BasesPropertyId,
+	BasesViewConfig,
+	EventRef,
+	TFolder,
+	ViewOption,
+	getIcon,
+	setIcon,
+} from 'obsidian';
 import { ColorPackId, isCssColor, normalizeColor, resolveColorPalette, stableColor } from '../table-colors/palettes';
 
 export type CollectionColorMode = 'none' | 'property' | 'automatic' | 'property-auto';
@@ -111,6 +121,157 @@ export function parseFolderIconRules(values: unknown): Map<string, string> {
 export function normalizeFolderPath(value: string): string {
 	const normalized = value.trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
 	return normalized === '.' || normalized === '/' ? '' : normalized;
+}
+
+/**
+ * The plugin's shared appearance vocabulary. Every view declares the same color
+ * and icon options with the same keys and defaults, so a Base configured for
+ * one view means the same thing in another, and a colour choice made in a
+ * Collection reads identically on a Kanban card or a timeline bar.
+ */
+export function colorViewOptions(itemLabel: string): ViewOption {
+	return {
+		type: 'group',
+		displayName: 'Colors',
+		items: [
+			{
+				type: 'dropdown',
+				key: 'colorMode',
+				displayName: itemLabel,
+				default: 'none',
+				options: {
+					'property-auto': 'Frontmatter, then automatic',
+					property: 'Frontmatter only',
+					automatic: 'Automatic only',
+					none: 'Off',
+				},
+			},
+			{
+				type: 'property',
+				key: 'colorProperty',
+				displayName: 'Frontmatter color property',
+				default: 'note.color',
+				placeholder: 'Named color or CSS hex value',
+			},
+			{
+				type: 'dropdown',
+				key: 'automaticColorSource',
+				displayName: 'Automatic colors from',
+				default: 'title',
+				options: { title: 'Title', folder: 'Folder name', property: 'Property value' },
+			},
+			{
+				type: 'property',
+				key: 'automaticColorProperty',
+				displayName: 'Automatic color property',
+				placeholder: 'Status, type, category…',
+			},
+			{
+				type: 'dropdown',
+				key: 'colorPack',
+				displayName: 'Color pack',
+				default: 'notion',
+				options: { notion: 'Notion', pastel: 'Pastel', vivid: 'Vivid', earth: 'Earth', custom: 'Custom' },
+			},
+			{
+				type: 'multitext',
+				key: 'customColors',
+				displayName: 'Custom palette colors',
+				default: [],
+			},
+		],
+	};
+}
+
+/** Extra items let a view add its own, such as Collection's icon placement. */
+export function iconViewOptions(extraItems: Exclude<ViewOption, { type: 'group' }>[] = []): ViewOption {
+	return {
+		type: 'group',
+		displayName: 'Icons',
+		items: [
+			{
+				type: 'toggle',
+				key: 'showIcons',
+				displayName: 'Show icons',
+				default: true,
+			},
+			...extraItems,
+			{
+				type: 'property',
+				key: 'iconProperty',
+				displayName: 'Frontmatter icon property',
+				default: 'note.icon',
+				placeholder: 'Emoji or Lucide icon name',
+			},
+			{
+				type: 'dropdown',
+				key: 'folderIconSource',
+				displayName: 'Folder icon source',
+				default: 'none',
+				options: {
+					'notebook-navigator': 'Notebook Navigator',
+					rules: 'Views folder rules',
+					none: 'None',
+				},
+			},
+			{
+				type: 'multitext',
+				key: 'folderIconRules',
+				displayName: 'Folder icon rules (path=icon)',
+				default: [],
+			},
+			{
+				type: 'toggle',
+				key: 'inheritFolderIcons',
+				displayName: 'Inherit icons in subfolders',
+				default: true,
+			},
+		],
+	} as ViewOption;
+}
+
+/** Reads the shared options above out of any view's config, identically. */
+export function readAppearanceConfig(config: BasesViewConfig): CollectionAppearanceConfig {
+	const automaticColorProperty = config.getAsPropertyId('automaticColorProperty');
+	const automaticColorSource = config.get('automaticColorSource');
+	const folderIconSource = normalizeFolderIconSource(config.get('folderIconSource'));
+	const customColors = config.get('customColors');
+	return {
+		colorMode: normalizeColorMode(config.get('colorMode')),
+		colorProperty: config.getAsPropertyId('colorProperty') ?? ('note.color' as BasesPropertyId),
+		// An automatic property set without an explicit source means the user
+		// picked the property expecting it to be used.
+		automaticColorSource: automaticColorSource === undefined && automaticColorProperty
+			? 'property'
+			: normalizeAutomaticColorSource(automaticColorSource),
+		automaticColorProperty,
+		colorPack: normalizeColorPack(config.get('colorPack')),
+		customColors: Array.isArray(customColors)
+			? customColors.filter((value): value is string => typeof value === 'string')
+			: [],
+		showIcons: config.get('showIcons') !== false,
+		iconProperty: config.getAsPropertyId('iconProperty')
+			?? (folderIconSource === 'notebook-navigator' ? null : ('note.icon' as BasesPropertyId)),
+		folderIconSource,
+		folderIconRules: parseFolderIconRules(config.get('folderIconRules')),
+		inheritFolderIcons: config.get('inheritFolderIcons') !== false,
+	};
+}
+
+function normalizeColorMode(value: unknown): CollectionColorMode {
+	return value === 'property' || value === 'automatic' || value === 'property-auto' ? value : 'none';
+}
+
+function normalizeAutomaticColorSource(value: unknown): AutomaticColorSource {
+	return value === 'folder' || value === 'property' ? value : 'title';
+}
+
+function normalizeColorPack(value: unknown): ColorPackId {
+	return value === 'pastel' || value === 'vivid' || value === 'earth' || value === 'custom' ? value : 'notion';
+}
+
+function normalizeFolderIconSource(value: unknown): FolderIconSource {
+	return value === 'rules' || value === 'notebook-navigator' ? value : 'none';
 }
 
 export function resolveCardColor(

@@ -1,65 +1,65 @@
-import { App, setIcon } from 'obsidian';
-import { BaseViewModelReader } from './BaseViewModelReader';
-import { NativeViewTabModel, NativeViewsMenuAdapter } from './NativeViewsMenuAdapter';
+import { App, Menu, setIcon } from 'obsidian';
+import { BaseViewModelReader, BaseViewTabModel } from './BaseViewModelReader';
+import type { BaseViewTabsHost } from './BaseViewTabsHost';
 
 const NATIVE_ITEM_SELECTOR = '.bases-toolbar-item.bases-toolbar-views-menu';
-const NATIVE_BUTTON_SELECTOR = `${NATIVE_ITEM_SELECTOR} .text-icon-button`;
 
 export class BaseViewTabsController {
 	private readonly toolbarEl: HTMLElement;
-	private readonly nativeItemEl: HTMLElement;
-	private readonly nativeButtonEl: HTMLElement;
+	private readonly nativeItemEl: HTMLElement | null;
 	private readonly tabsEl: HTMLElement;
-	private readonly adapter: NativeViewsMenuAdapter;
 	private readonly modelReader: BaseViewModelReader;
-	private model: NativeViewTabModel[] = [];
+	private model: BaseViewTabModel[] = [];
 	private tabButtons: HTMLButtonElement[] = [];
+	private hiddenViewIndexes = new Set<number>();
 	private moreButton: HTMLButtonElement | null = null;
 	private refreshTimer: number | null = null;
 	private layoutFrame: number | null = null;
+	private activating = false;
 	private disposed = false;
 
 	static create(
 		app: App,
+		host: BaseViewTabsHost,
 		headerEl: HTMLElement,
 		observeResize: (element: Element, callback: () => void) => void,
 		unobserveResize: (element: Element, callback: () => void) => void,
 	): BaseViewTabsController | null {
 		const toolbarEl = headerEl.querySelector<HTMLElement>('.bases-toolbar');
 		const nativeItemEl = headerEl.querySelector<HTMLElement>(NATIVE_ITEM_SELECTOR);
-		const nativeButtonEl = headerEl.querySelector<HTMLElement>(NATIVE_BUTTON_SELECTOR);
-		if (!toolbarEl || !nativeItemEl || !nativeButtonEl) return null;
+		if (!toolbarEl) return null;
 		return new BaseViewTabsController(
 			app,
+			host,
 			headerEl,
 			toolbarEl,
 			nativeItemEl,
-			nativeButtonEl,
 			observeResize,
 			unobserveResize,
 		);
 	}
 
 	private constructor(
-		app: App,
+		private readonly app: App,
+		private readonly host: BaseViewTabsHost,
 		readonly headerEl: HTMLElement,
 		toolbarEl: HTMLElement,
-		nativeItemEl: HTMLElement,
-		nativeButtonEl: HTMLElement,
+		nativeItemEl: HTMLElement | null,
 		private readonly observeResize: (element: Element, callback: () => void) => void,
 		private readonly unobserveResize: (element: Element, callback: () => void) => void,
 	) {
 		this.toolbarEl = toolbarEl;
 		this.nativeItemEl = nativeItemEl;
-		this.nativeButtonEl = nativeButtonEl;
-		this.adapter = new NativeViewsMenuAdapter(nativeButtonEl);
+		const nativeButtonEl = nativeItemEl?.querySelector<HTMLElement>('.text-icon-button');
+		nativeButtonEl?.setAttr('aria-label', 'Manage Base views');
+		nativeButtonEl?.setAttr('title', 'Manage Base views');
 		this.modelReader = new BaseViewModelReader(app);
 		this.tabsEl = document.createElement('div');
 		this.tabsEl.className = 'views-view-tabs';
 		this.tabsEl.setAttribute('role', 'tablist');
 		this.tabsEl.setAttribute('aria-label', 'Base views');
 		this.tabsEl.hidden = true;
-		toolbarEl.insertBefore(this.tabsEl, nativeItemEl);
+		toolbarEl.insertBefore(this.tabsEl, nativeItemEl ?? toolbarEl.firstChild);
 		this.observeResize(toolbarEl, this.scheduleLayout);
 		void this.refresh();
 	}
@@ -83,9 +83,11 @@ export class BaseViewTabsController {
 	}
 
 	private async refresh(): Promise<void> {
-		if (this.disposed || !this.nativeButtonEl.isConnected) return;
-		const currentName = this.nativeButtonEl.querySelector<HTMLElement>('.text-button-label')?.textContent?.trim() ?? '';
-		const model = await this.modelReader.read(this.headerEl, currentName);
+		if (this.disposed || !this.toolbarEl.isConnected) return;
+		const model = await this.modelReader.read(
+			this.host.getFile(),
+			this.host.getCurrentViewName(),
+		);
 		if (this.disposed || !this.headerEl.isConnected) return;
 		if (!model.length) {
 			this.disableEnhancement();
@@ -94,22 +96,22 @@ export class BaseViewTabsController {
 		this.render(model);
 	}
 
-	private render(model: NativeViewTabModel[]): void {
+	private render(model: BaseViewTabModel[]): void {
 		this.model = model;
 		this.tabsEl.empty();
 		this.tabButtons = model.map((view, index) => this.createTab(view, index));
 		this.moreButton = this.tabsEl.createEl('button', {
 			cls: 'views-view-tabs-more',
 			text: 'More…',
-			attr: { type: 'button', 'aria-label': 'Manage Base views' },
+			attr: { type: 'button', 'aria-label': 'Show more Base views' },
 		});
-		this.moreButton.addEventListener('click', () => this.openManager());
+		this.moreButton.addEventListener('click', (event) => this.openOverflowMenu(event));
 		this.tabsEl.hidden = false;
 		this.headerEl.addClass('views-tabs-enabled');
 		this.scheduleLayout();
 	}
 
-	private createTab(view: NativeViewTabModel, index: number): HTMLButtonElement {
+	private createTab(view: BaseViewTabModel, index: number): HTMLButtonElement {
 		const button = this.tabsEl.createEl('button', {
 			cls: `views-view-tab${view.active ? ' is-active' : ''}`,
 			attr: {
@@ -124,37 +126,43 @@ export class BaseViewTabsController {
 		setIcon(button.createSpan({ cls: 'views-view-tab-icon' }), view.icon);
 		button.createSpan({ cls: 'views-view-tab-label', text: view.name });
 		button.addEventListener('click', () => {
-			if (view.active) this.openManager();
-			else void this.activate(view, button);
-		});
-		button.addEventListener('contextmenu', (event) => {
-			event.preventDefault();
-			this.openManager();
+			if (!view.active && !this.activating) void this.activate(view);
 		});
 		button.addEventListener('keydown', (event) => this.handleKeyDown(event, index));
 		return button;
 	}
 
-	private async activate(view: NativeViewTabModel, button: HTMLButtonElement): Promise<void> {
-		button.disabled = true;
-		const activated = await this.adapter.activate(view);
-		if (!activated) {
-			button.disabled = false;
-			this.disableEnhancement();
-			return;
+	private async activate(view: BaseViewTabModel): Promise<void> {
+		if (this.activating) return;
+		this.activating = true;
+		this.tabsEl.setAttr('aria-busy', 'true');
+		try {
+			await this.host.selectView(view.name);
+			this.scheduleRefresh();
+		} catch (error) {
+			console.error('[Views] Could not switch Base view.', error);
+		} finally {
+			this.activating = false;
+			this.tabsEl.removeAttribute('aria-busy');
 		}
-		window.setTimeout(() => this.scheduleRefresh(), 100);
 	}
 
-	private openManager(): void {
-		void this.adapter.openVisible(
-			(model) => {
-				if (model.length) this.render(model);
-			},
-			() => this.scheduleRefresh(),
-		).then((opened) => {
-			if (!opened) this.disableEnhancement();
-		});
+	private openOverflowMenu(event: MouseEvent): void {
+		const hiddenViews = this.model
+			.map((view, index) => ({ view, index }))
+			.filter(({ index }) => this.hiddenViewIndexes.has(index));
+		if (!hiddenViews.length) return;
+		const menu = new Menu();
+		for (const { view, index } of hiddenViews) {
+			menu.addItem((item) => item
+				.setTitle(view.name)
+				.setIcon(view.icon)
+				.setChecked(view.active)
+				.onClick(() => {
+					if (!view.active && this.tabButtons[index] && !this.activating) void this.activate(view);
+				}));
+		}
+		menu.showAtMouseEvent(event);
 	}
 
 	private handleKeyDown(event: KeyboardEvent, index: number): void {
@@ -195,6 +203,7 @@ export class BaseViewTabsController {
 		const gap = Number.parseFloat(window.getComputedStyle(this.tabsEl).columnGap) || 0;
 		const total = widths.reduce((sum, width) => sum + width, 0) + gap * Math.max(0, widths.length - 1);
 		if (total <= available) {
+			this.hiddenViewIndexes.clear();
 			this.moreButton.hidden = true;
 			return;
 		}
@@ -224,6 +233,7 @@ export class BaseViewTabsController {
 		}
 		if (!visible.size && activeIndex >= 0) visible.add(activeIndex);
 		this.tabButtons.forEach((button, index) => { button.hidden = !visible.has(index); });
+		this.hiddenViewIndexes = new Set(this.model.map((_, index) => index).filter((index) => !visible.has(index)));
 		const hiddenCount = this.model.length - visible.size;
 		this.moreButton.hidden = hiddenCount <= 0;
 		this.moreButton.setText(`${hiddenCount} more…`);

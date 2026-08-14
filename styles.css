@@ -13,6 +13,8 @@
   height: 100%;
   background-color: var(--background-primary);
   color: var(--text-normal);
+  border-radius: var(--radius-m, 8px);
+  overflow: hidden;
 }
 
 .tl-view-switcher-container {
@@ -26,6 +28,18 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+/* Timeline height slider: cap the view and let the lanes scroll inside it. */
+.tl-root.tl-fixed-height {
+  height: auto;
+  flex: none;
+  min-height: 0;
+}
+
+.tl-root.is-panning,
+.tl-root.is-panning .tl-scroll-area {
+  cursor: grabbing;
 }
 
 /* View Switcher Tabs */
@@ -102,7 +116,7 @@
 
 .tl-toolbar button {
   border: 1px solid var(--background-modifier-border-hover);
-  border-radius: 6px;
+  border-radius: var(--radius-m, 8px);
   background-color: var(--background-secondary-alt);
   color: inherit;
   font-size: 12px;
@@ -151,10 +165,13 @@
   background-color: var(--background-primary-alt);
 }
 
+/* Was display:table. Auto table layout re-measures every row against a canvas
+   thousands of pixels wide on each style write, which is the most expensive
+   thing that can sit under a 60fps scroll. The renderer sets an explicit width
+   instead, so no intrinsic sizing pass is needed. */
 .tl-grid {
-  display: table; /* Ensures widths align */
+  display: block;
   min-width: 100%;
-  border-collapse: collapse;
 }
 
 /* Sticky Headers */
@@ -184,8 +201,10 @@
   color: var(--text-muted);
 }
 
+/* flex: 1 would set flex-basis: 0 and silently discard the inline width the
+   renderer sets, collapsing the axis and every track to one viewport. */
 .tl-time-axis {
-  flex: 1;
+  flex: 0 0 auto;
   position: relative;
   overflow: hidden; /* Ticks are absolute positioned inside */
 }
@@ -239,7 +258,7 @@
 }
 
 .tl-lane-track {
-  flex: 1;
+  flex: 0 0 auto;
   position: relative;
   min-height: 32px; /* Default height */
 }
@@ -249,24 +268,24 @@
   height: 32px !important;
 }
 
-/* Ticks */
+/* Ticks. Labels sit to the right of their gridline, like the reference
+   timelines, so the first tick is never half-clipped by the axis. */
 .tl-tick {
   position: absolute;
   top: 0;
-  transform: translateX(-50%);
   font-size: 10px;
   color: var(--text-muted);
-  text-align: center;
   padding-top: 18px;
+  padding-left: 5px;
   min-width: 1px;
+  white-space: nowrap;
 }
 
 .tl-tick::before {
   content: "";
   position: absolute;
   top: 0;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 0;
   width: 1px;
   height: 16px;
   background-color: var(--background-modifier-border);
@@ -280,20 +299,35 @@
 
 .tl-tick.is-major::before {
   height: 20px;
-  background-color: var(--interactive-accent);
+  background-color: var(--background-modifier-border-hover);
 }
 
-/* Bars and Dots */
+/* Bars and Dots. The bar is the pill surface at span scale, so a value tints
+   a bar exactly as it tints a table cell or a Collection chip. */
 .tl-bar,
 .tl-dot {
   position: absolute;
-  background-color: var(--interactive-accent);
-  color: var(--text-on-accent);
-  border-radius: 6px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+  border: var(--border-width) solid var(--background-modifier-border-hover);
+  background: var(--background-secondary-alt);
+  color: var(--text-normal);
+  border-radius: var(--radius-m, 8px);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
   transition: box-shadow 0.12s ease, filter 0.12s ease;
   z-index: 1;
   cursor: pointer;
+}
+
+.tl-bar.has-value-color,
+.tl-dot.has-value-color {
+  color: color-mix(in srgb, var(--views-property-color) 55%, var(--text-normal));
+  background: color-mix(in srgb, var(--views-property-color) 18%, var(--background-primary));
+  border-color: color-mix(in srgb, var(--views-property-color) 32%, transparent);
+}
+
+.theme-dark .tl-bar.has-value-color,
+.theme-dark .tl-dot.has-value-color {
+  color: color-mix(in srgb, var(--views-property-color) 38%, var(--text-normal));
+  background: color-mix(in srgb, var(--views-property-color) 24%, var(--background-primary));
 }
 
 .tl-bar:hover,
@@ -305,23 +339,79 @@
 .tl-bar {
   display: flex;
   align-items: center;
-  padding: 0 10px;
+  padding: 0 9px;
   min-height: 20px;
   overflow: hidden;
-  border-radius: 3px;
+  border-radius: var(--radius-m, 8px);
+}
+
+.tl-bar-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* A pinned label has scrolled away from its own bar start. */
+.tl-bar-content.is-pinned::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-left: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  opacity: 0.55;
+}
+
+.tl-bar-check {
+  flex: none;
+  margin: 0;
+  cursor: pointer;
 }
 
 .tl-bar-label {
   font-size: 12px;
+  line-height: 1.45;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.tl-bar.is-done .tl-bar-label {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+/* Chips live past the bar end so a short span still shows its values. */
+.tl-bar-annex {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  z-index: 3;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.tl-bar-chip {
+  pointer-events: auto;
+  font-size: 11px;
+  color: var(--text-muted);
+  max-width: 220px;
 }
 
 .tl-dot {
   width: 12px;
   height: 12px;
   border-radius: 50%;
+  background: var(--interactive-accent);
+  border-color: transparent;
+}
+
+.tl-dot.has-value-color {
+  background: var(--views-property-color);
 }
 
 /* Weekend Shading */
@@ -341,6 +431,12 @@
   bottom: 0;
   background-color: var(--background-modifier-hover);
   opacity: 0.35;
+}
+
+/* Alternating month columns read as structure; weekend stripes at this scale
+   read as noise behind the bars. */
+.tl-weekend.is-month-band {
+  opacity: 0.16;
 }
 
 /* Today Line */
@@ -570,6 +666,316 @@
   padding: var(--size-4-4);
   color: var(--text-normal);
   background: var(--background-primary);
+}
+
+/* Kanban view ------------------------------------------------------------ */
+
+.mbv-kanban-host {
+  height: 100%;
+  min-height: 0;
+}
+
+.mbv-kanban {
+  --mbv-kanban-column-width: 300px;
+  --mbv-kanban-gap: var(--size-4-2);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  color: var(--text-normal);
+}
+
+/* Board height slider: cap the view and let the columns scroll inside it. */
+.mbv-kanban.is-fixed-height {
+  height: auto;
+  flex: none;
+  min-height: 0;
+}
+
+.mbv-kanban-notice {
+  display: none;
+  padding: var(--size-2-2) var(--size-4-3);
+  border-bottom: var(--border-width) solid var(--background-modifier-border);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.mbv-kanban-notice.is-visible {
+  display: block;
+}
+
+.mbv-kanban-board {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--size-4-2) var(--size-4-3) var(--size-4-4);
+}
+
+/* The body is sized by its widest row, so anything inside it can ask for 100%
+   and get the full board width rather than the visible width. */
+.mbv-kanban-body {
+  width: max-content;
+  min-width: 100%;
+}
+
+.mbv-kanban-header,
+.mbv-kanban-row {
+  display: flex;
+  gap: var(--mbv-kanban-gap);
+  width: max-content;
+  min-width: 100%;
+}
+
+.mbv-kanban-header {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  padding-bottom: var(--size-2-2);
+  background: var(--background-primary);
+}
+
+/* The column head is a `.views-property-pill`, so its shape, padding, radius,
+   and colour all come from the shared pill rules. Only the column geometry is
+   set here; nothing about the chip's appearance is duplicated. */
+.mbv-kanban-column-head {
+  gap: var(--size-2-2);
+  flex: 0 0 var(--mbv-kanban-column-width);
+  width: var(--mbv-kanban-column-width);
+  font-weight: var(--font-medium);
+}
+
+/* The status dot the reference puts inside each column pill. */
+.mbv-kanban-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-inline-end: 0.45em;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.mbv-kanban-column-head.has-value-color .mbv-kanban-dot {
+  background: var(--views-property-color);
+}
+
+.mbv-kanban-column-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--icon-s);
+  height: var(--icon-s);
+  margin-inline-end: 0.35em;
+}
+
+.mbv-kanban-column-icon svg {
+  width: var(--icon-s);
+  height: var(--icon-s);
+}
+
+.mbv-kanban-column-icon.is-emoji {
+  font-size: var(--icon-s);
+  line-height: 1;
+}
+
+.mbv-kanban-column-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mbv-kanban-column-count,
+.mbv-kanban-lane-count {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The lane divides the whole board, so it is marked by a full-width rule in
+   the lane's color rather than another chip competing with the column chips. */
+.mbv-kanban-lane-head {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--size-2-2);
+  width: fit-content;
+  margin: var(--size-4-3) 0 var(--size-2-2);
+  cursor: pointer;
+}
+
+.mbv-kanban-lane-toggle {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+}
+
+/* Also a `.views-property-pill`; only the weight differs. */
+.mbv-kanban-lane-chip {
+  font-weight: var(--font-medium);
+}
+
+.mbv-kanban-lane-head.is-collapsed .mbv-kanban-lane-chip {
+  opacity: 0.7;
+}
+
+.mbv-kanban-cell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-2-3);
+  flex: 0 0 var(--mbv-kanban-column-width);
+  width: var(--mbv-kanban-column-width);
+  min-height: 120px;
+  padding: var(--size-2-3);
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+}
+
+/* The column's own value tints its cells, faintly enough to stay a surface. */
+.mbv-kanban-cell[style*="--views-property-color"] {
+  background: color-mix(in srgb, var(--views-property-color) 9%, var(--background-secondary));
+}
+
+.mbv-kanban-cell.is-drop-target {
+  outline: var(--border-width) solid color-mix(in srgb, var(--views-property-color, var(--interactive-accent)) 55%, transparent);
+  outline-offset: -1px;
+}
+
+.mbv-kanban-more {
+  padding: var(--size-2-2);
+  border-radius: var(--radius-s);
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  text-align: center;
+}
+
+.mbv-kanban-drop-marker {
+  height: 2px;
+  border-radius: 999px;
+  background: var(--interactive-accent);
+}
+
+.mbv-kanban-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-2-2);
+  padding: var(--size-2-3);
+  border: var(--border-width) solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-primary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+  transition: box-shadow 0.12s ease, transform 0.12s ease;
+}
+
+/* Identical mix to `.mbv-card.has-card-color`, so a colour reads the same on a
+   Kanban card as it does on a Collection card. */
+.mbv-kanban-card.has-value-color {
+  border-color: color-mix(in srgb, var(--views-property-color) 38%, var(--background-modifier-border));
+  background: color-mix(in srgb, var(--views-property-color) 11%, var(--background-secondary));
+}
+
+.mbv-kanban-card.has-value-color .mbv-kanban-card-cover {
+  border-bottom: var(--border-width) solid color-mix(in srgb, var(--views-property-color) 28%, var(--background-modifier-border));
+}
+
+.mbv-kanban-card:hover {
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12);
+}
+
+.mbv-kanban-card.is-dragging {
+  opacity: 0.4;
+}
+
+.mbv-kanban.is-compact .mbv-kanban-card {
+  gap: var(--size-2-1);
+  padding: var(--size-2-2);
+}
+
+.mbv-kanban-card-cover {
+  margin: calc(-1 * var(--size-2-3)) calc(-1 * var(--size-2-3)) 0;
+  overflow: hidden;
+  border-radius: var(--radius-m) var(--radius-m) 0 0;
+}
+
+.mbv-kanban-card-cover img {
+  display: block;
+  width: 100%;
+  height: var(--mbv-kanban-cover-height, 96px);
+  object-fit: cover;
+}
+
+.mbv-kanban.is-coverless .mbv-kanban-card-cover {
+  display: none;
+}
+
+.mbv-kanban-card-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--size-2-2);
+  min-width: 0;
+}
+
+.mbv-kanban-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--icon-s);
+  height: var(--icon-s);
+  margin-top: 1px;
+  color: var(--text-muted);
+}
+
+.mbv-kanban-card-icon svg {
+  width: var(--icon-s);
+  height: var(--icon-s);
+}
+
+.mbv-kanban-card-icon.is-emoji {
+  font-size: var(--icon-s);
+  line-height: 1;
+}
+
+.mbv-kanban-card-title {
+  min-width: 0;
+  font-weight: var(--font-medium);
+  line-height: var(--line-height-tight);
+  overflow-wrap: anywhere;
+}
+
+.mbv-kanban-card-properties {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--size-2-1) var(--size-2-2);
+  min-width: 0;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.mbv-kanban-card-property {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.mbv-kanban-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: var(--layer-notice);
+  pointer-events: none;
+  opacity: 0.92;
+  transform: translate(-9999px, -9999px);
+  rotate: 1.5deg;
+}
+
+.mbv-kanban-ghost .mbv-kanban-card {
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
 }
 
 /* Collection scrollbars -------------------------------------------------- */
@@ -1015,28 +1421,87 @@
 .views-property-value.is-list {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--size-2-1);
+  gap: var(--size-2-1) var(--size-2-2);
   overflow: visible;
 }
 
+/* Layout only. The chip surface arrives with .views-property-pill, which is
+   applied solely to values that resolved an automatic color. */
+.views-property-item {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.views-property-item.is-tag {
+  color: var(--text-normal);
+}
+
+/* One chip geometry for every colored value, taken from Obsidian's own tag
+   variables, so a text value, a list item, a tag, and a multi-select pill are
+   the same shape and size wherever they appear. */
 .views-property-pill {
   display: inline-flex;
   align-items: center;
   min-width: 0;
   max-width: 100%;
-  padding: 1px var(--size-2-2);
+  padding: var(--tag-padding-y, 0.25em) var(--tag-padding-x, 0.65em);
   overflow: hidden;
   border: var(--border-width) solid var(--background-modifier-border-hover);
-  border-radius: 999px;
+  border-radius: var(--tag-radius, 2em);
   color: var(--text-muted);
   background: color-mix(in srgb, var(--background-secondary-alt) 72%, transparent);
-  line-height: 1.45;
+  line-height: 1;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .views-property-pill.is-tag {
   color: var(--text-normal);
+}
+
+/* Obsidian sizes its value containers at `width: 100%; height: 100%`, so a
+   scalar value turned the whole cell into one enormous stadium. Scoped to the
+   marker class rather than to specific containers, because which element the
+   renderer puts the value in differs per view type. The chip hugs its text;
+   the surrounding cell keeps its own hit area. */
+.views-colored-pill {
+  width: fit-content;
+  max-width: 100%;
+  height: auto;
+  min-height: 0;
+  align-self: center;
+  flex: none;
+}
+
+/* The span a scalar value is wrapped in, so it carries the chip the same way a
+   tag element does instead of the whole cell carrying it. */
+.views-value-chip {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Multi-select pills carry Bases' own zero-padding pill variables, which made
+   them a different shape from every other colored value. */
+.multi-select-pill.views-colored-pill {
+  --pill-padding-x: var(--tag-padding-x, 0.65em);
+  --pill-padding-y: var(--tag-padding-y, 0.25em);
+  --pill-radius: var(--tag-radius, 2em);
+  padding: var(--tag-padding-y, 0.25em) var(--tag-padding-x, 0.65em);
+}
+
+.multi-select-pill.views-colored-pill .multi-select-pill-content {
+  margin-inline-start: 0;
 }
 
 .views-property-pill.has-value-color {
@@ -1054,6 +1519,12 @@
 .views-property-value.is-native a {
   color: inherit;
   text-decoration: none;
+}
+
+.views-property-value :is(input, textarea, select) {
+  border-color: transparent;
+  color: inherit;
+  background: transparent;
 }
 
 .views-property-pill a:hover,
@@ -1293,21 +1764,36 @@
 
 /* Horizontal Base view tabs --------------------------------------------- */
 
-body.views-tabs-is-probing .bases-toolbar-menu.bases-toolbar-views-menu {
-  visibility: hidden !important;
-  opacity: 0 !important;
-  pointer-events: none !important;
-}
-
 .bases-header.views-tabs-enabled .bases-toolbar-item.bases-toolbar-views-menu {
-  position: absolute;
-  width: 1px;
-  height: 1px;
+  position: static;
+  width: auto;
+  height: auto;
   margin: 0;
   padding: 0;
-  overflow: hidden;
-  clip-path: inset(50%);
-  pointer-events: none;
+  overflow: visible;
+  clip-path: none;
+  pointer-events: auto;
+}
+
+.bases-header.views-tabs-enabled .bases-toolbar-item.bases-toolbar-views-menu .text-button-label {
+  display: none;
+}
+
+.bases-header.views-tabs-enabled .bases-toolbar-item.bases-toolbar-views-menu .text-icon-button {
+  width: auto;
+  min-width: max-content;
+  height: 28px;
+  padding-inline: var(--size-4-1);
+  border-radius: var(--radius-s);
+  box-shadow: none;
+}
+
+.bases-header.views-tabs-enabled .bases-toolbar-item.bases-toolbar-views-menu .text-icon-button::after {
+  content: "Views";
+  margin-inline-start: var(--size-2-1);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-normal);
 }
 
 .bases-header.views-tabs-enabled .bases-toolbar-result-count {
@@ -1414,6 +1900,17 @@ body.views-tabs-is-probing .bases-toolbar-menu.bases-toolbar-views-menu {
   padding-inline: var(--size-4-2);
 }
 
+.views-table-color-toggle {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  color: var(--text-muted);
+}
+
+.views-table-color-toggle.is-disabled {
+  opacity: var(--disabled-opacity);
+}
+
 @container bases-header (width < 620px) {
   .views-view-tab,
   .views-view-tabs-more {
@@ -1433,16 +1930,43 @@ body.views-tabs-is-probing .bases-toolbar-menu.bases-toolbar-views-menu {
   }
 }
 
-.bases-view :is(.multi-select-pill, a.tag).views-colored-pill.has-value-color,
-.bases-embed :is(.multi-select-pill, a.tag).views-colored-pill.has-value-color {
-  max-width: 100%;
-  border-color: color-mix(in srgb, var(--views-property-color) 32%, transparent);
-  background-color: color-mix(in srgb, var(--views-property-color) 18%, var(--background-primary));
-  color: color-mix(in srgb, var(--views-property-color) 55%, var(--text-normal));
+.views-settings-tabs {
+  display: flex;
+  gap: var(--size-2-1);
+  margin-block: var(--size-4-3) var(--size-4-5);
+  padding-bottom: var(--size-2-2);
+  border-bottom: var(--border-width) solid var(--background-modifier-border);
 }
 
-.theme-dark .bases-view :is(.multi-select-pill, a.tag).views-colored-pill.has-value-color,
-.theme-dark .bases-embed :is(.multi-select-pill, a.tag).views-colored-pill.has-value-color {
-  background-color: color-mix(in srgb, var(--views-property-color) 24%, var(--background-primary));
-  color: color-mix(in srgb, var(--views-property-color) 38%, var(--text-normal));
+.views-settings-tab {
+  padding: var(--size-2-2) var(--size-4-3);
+  border: 0;
+  border-radius: var(--radius-s);
+  color: var(--text-muted);
+  background: transparent;
+  box-shadow: none;
+}
+
+.views-settings-tab:hover,
+.views-settings-tab.is-active {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.views-settings-tab.is-active {
+  color: var(--interactive-accent);
+  font-weight: var(--font-semibold);
+}
+
+.views-property-color-settings > .setting-item {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  background: var(--background-primary);
+}
+
+.views-property-color-list {
+  max-height: min(56vh, 640px);
+  overflow-y: auto;
+  border-top: var(--border-width) solid var(--background-modifier-border);
 }

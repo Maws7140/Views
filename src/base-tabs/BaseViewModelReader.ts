@@ -1,5 +1,11 @@
 import { App, parseYaml, TFile } from 'obsidian';
-import type { NativeViewTabModel } from './NativeViewsMenuAdapter';
+
+export interface BaseViewTabModel {
+	index: number;
+	name: string;
+	icon: string;
+	active: boolean;
+}
 
 interface BaseDefinition {
 	views?: Array<{ name?: unknown; type?: unknown }>;
@@ -19,55 +25,60 @@ const VIEW_ICONS: Record<string, string> = {
 export class BaseViewModelReader {
 	constructor(private readonly app: App) {}
 
-	async read(headerEl: HTMLElement, currentName: string): Promise<NativeViewTabModel[]> {
-		const file = this.fileForHeader(headerEl);
-		if (!file || file.extension !== 'base') return [];
+	async read(file: TFile | null, currentName: string): Promise<BaseViewTabModel[]> {
+		if (!(file instanceof TFile) || file.extension !== 'base') return [];
+		const source = await this.app.vault.cachedRead(file);
+		let views: Array<{ name?: unknown; type?: unknown }> = [];
 		try {
-			const definition = parseYaml(await this.app.vault.cachedRead(file)) as BaseDefinition | null;
-			const views = Array.isArray(definition?.views) ? definition.views : [];
-			return views.flatMap((view, index) => {
-				const name = typeof view.name === 'string' ? view.name.trim() : '';
-				if (!name) return [];
-				const type = typeof view.type === 'string' ? view.type : '';
-				return [{
-					index,
-					name,
-					icon: VIEW_ICONS[type] ?? 'panels-top-left',
-					active: name === currentName,
-				}];
-			});
+			const definition = parseYaml(source) as BaseDefinition | null;
+			views = Array.isArray(definition?.views) ? definition.views : [];
 		} catch (error) {
-			console.warn('[Views] Could not read Base views without opening the native menu.', error);
-			return [];
+			console.warn('[Views] Falling back to structural Base view parsing.', error);
 		}
-	}
-
-	private fileForHeader(headerEl: HTMLElement): TFile | null {
-		const ownerFile = this.ownerFileForHeader(headerEl);
-		if (ownerFile?.extension === 'base') return ownerFile;
-
-		let node: HTMLElement | null = headerEl;
-		while (node && node !== document.body) {
-			for (const attribute of ['src', 'data-src', 'data-path']) {
-				const raw = node.getAttribute(attribute);
-				if (!raw) continue;
-				const linkpath = raw.replace(/^!\[\[/, '').replace(/\]\]$/, '').split(/[|#]/, 1)[0]?.trim();
-				if (!linkpath) continue;
-				const file = this.app.metadataCache.getFirstLinkpathDest(linkpath, ownerFile?.path ?? '');
-				if (file?.extension === 'base') return file;
-			}
-			node = node.parentElement;
-		}
-		return null;
-	}
-
-	private ownerFileForHeader(headerEl: HTMLElement): TFile | null {
-		const matches: TFile[] = [];
-		this.app.workspace.iterateAllLeaves((leaf) => {
-			if (matches.length || !leaf.view.containerEl.contains(headerEl)) return;
-			const file = (leaf.view as typeof leaf.view & { file?: TFile }).file;
-			if (file instanceof TFile) matches.push(file);
+		if (!views.length) views = this.parseViewBlocks(source);
+		return views.flatMap((view, index) => {
+			const name = typeof view.name === 'string' ? view.name.trim() : '';
+			if (!name) return [];
+			const type = typeof view.type === 'string' ? view.type : '';
+			return [{
+				index,
+				name,
+				icon: VIEW_ICONS[type] ?? 'panels-top-left',
+				active: name === currentName,
+			}];
 		});
-		return matches[0] ?? null;
+	}
+
+	private parseViewBlocks(source: string): Array<{ name: string; type: string }> {
+		const views: Array<{ name: string; type: string }> = [];
+		let inViews = false;
+		let current: { name: string; type: string } | null = null;
+		for (const line of source.split(/\r?\n/)) {
+			if (/^views:\s*$/.test(line)) {
+				inViews = true;
+				continue;
+			}
+			if (!inViews) continue;
+			if (/^\S/.test(line)) break;
+			const start = line.match(/^\s{2}-\s+type:\s*(.+?)\s*$/);
+			if (start) {
+				if (current?.name) views.push(current);
+				current = { name: '', type: this.unquote(start[1] ?? '') };
+				continue;
+			}
+			const name = line.match(/^\s{4}name:\s*(.+?)\s*$/);
+			if (name && current) current.name = this.unquote(name[1] ?? '');
+		}
+		if (current?.name) views.push(current);
+		return views;
+	}
+
+	private unquote(value: string): string {
+		const trimmed = value.trim();
+		if ((trimmed.startsWith('"') && trimmed.endsWith('"'))
+			|| (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+			return trimmed.slice(1, -1);
+		}
+		return trimmed;
 	}
 }

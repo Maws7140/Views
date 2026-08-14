@@ -6,6 +6,9 @@ export interface DateScale {
 	toX(ts: number): number;
 	fromX(px: number): number;
 	setZoom(level: TimelineZoomLevel): void;
+	setPxPerDay(value: number): void;
+	canZoom(step: 1 | -1): boolean;
+	getTickLevel(): TimelineZoomLevel;
 	fitTo(items: TimelineItem[], viewportWidth: number): void;
 }
 
@@ -43,9 +46,36 @@ export class BasicDateScale implements DateScale {
 		return this.zoomLevel;
 	}
 
+	/**
+	 * `fitTo` leaves pxPerDay on an exact fit rather than a preset, so tick
+	 * density has to come from the real scale instead of the snapped label.
+	 */
+	getTickLevel(): TimelineZoomLevel {
+		if (this.pxPerDay >= 160) return 'day';
+		if (this.pxPerDay >= 48) return 'week';
+		if (this.pxPerDay >= 14) return 'month';
+		if (this.pxPerDay >= 5) return 'quarter';
+		return 'year';
+	}
+
 	setZoom(level: TimelineZoomLevel): void {
 		this.zoomLevel = level;
 		this.pxPerDay = BasicDateScale.ZOOM_PRESETS[level];
+	}
+
+	/**
+	 * Zoom is continuous. Stepping through presets desynced from the fitted
+	 * pxPerDay and made the buttons no-ops at some scales.
+	 */
+	setPxPerDay(value: number): void {
+		this.pxPerDay = Math.min(BasicDateScale.MAX_PX_PER_DAY, Math.max(BasicDateScale.MIN_PX_PER_DAY, value));
+		this.zoomLevel = this.getTickLevel();
+	}
+
+	canZoom(step: 1 | -1): boolean {
+		return step > 0
+			? this.pxPerDay < BasicDateScale.MAX_PX_PER_DAY
+			: this.pxPerDay > BasicDateScale.MIN_PX_PER_DAY;
 	}
 
 	fitTo(items: TimelineItem[], viewportWidth: number): void {
@@ -62,22 +92,13 @@ export class BasicDateScale implements DateScale {
 			return;
 		}
 
-		this.startTs = min;
 		const durationDays = Math.max(1, (max - min) / BasicDateScale.MS_PER_DAY);
-		const computed = viewportWidth / durationDays;
-		const clamped = Math.min(BasicDateScale.MAX_PX_PER_DAY, Math.max(BasicDateScale.MIN_PX_PER_DAY, computed));
-		this.pxPerDay = clamped;
-
-		// Snap to the nearest preset so zoom controls remain predictable.
-		let closestLevel: TimelineZoomLevel = this.zoomLevel;
-		let smallestDelta = Number.POSITIVE_INFINITY;
-		for (const [level, value] of Object.entries(BasicDateScale.ZOOM_PRESETS) as Array<[TimelineZoomLevel, number]>) {
-			const delta = Math.abs(value - clamped);
-			if (delta < smallestDelta) {
-				smallestDelta = delta;
-				closestLevel = level;
-			}
-		}
-		this.zoomLevel = closestLevel;
+		// Leading air, so the first bar does not sit flush against the canvas edge
+		// and the user can scroll to before the earliest item.
+		const padDays = Math.max(1, durationDays * 0.05);
+		this.startTs = min - padDays * BasicDateScale.MS_PER_DAY;
+		const computed = viewportWidth / (durationDays + padDays * 2);
+		this.pxPerDay = Math.min(BasicDateScale.MAX_PX_PER_DAY, Math.max(BasicDateScale.MIN_PX_PER_DAY, computed));
+		this.zoomLevel = this.getTickLevel();
 	}
 }

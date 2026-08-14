@@ -1,4 +1,5 @@
 import { CollectionView, CollectionViewType } from '../CollectionView';
+import { KanbanView, KanbanViewType } from '../KanbanView';
 import { TimelineView, TimelineViewType } from '../TimelineView';
 import type ViewsPlugin from '../main';
 
@@ -17,10 +18,18 @@ export const VIEW_DEFINITIONS: readonly ViewDefinition[] = [
 		}),
 	},
 	{
+		register: (plugin) => plugin.registerBasesView(KanbanViewType, {
+			name: 'Views · Kanban',
+			icon: 'lucide-square-kanban',
+			factory: (controller, containerEl) => new KanbanView(plugin, controller, containerEl),
+			options: KanbanView.getViewOptions,
+		}),
+	},
+	{
 		register: (plugin) => plugin.registerBasesView(CollectionViewType, {
 			name: 'Views · Collection',
 			icon: 'lucide-gallery-horizontal-end',
-			factory: (controller, containerEl) => new CollectionView(controller, containerEl),
+			factory: (controller, containerEl) => new CollectionView(plugin, controller, containerEl),
 			options: CollectionView.getViewOptions,
 		}),
 	},

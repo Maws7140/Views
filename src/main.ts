@@ -11,6 +11,7 @@ export default class ViewsPlugin extends Plugin {
 	settings: ViewsPluginSettings = DEFAULT_SETTINGS;
 	private tableColors: TableColorEnhancer | null = null;
 	private viewTabs: BaseViewTabsEnhancer | null = null;
+	private readonly propertyColorSettingsListeners = new Set<() => void>();
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -22,6 +23,7 @@ export default class ViewsPlugin extends Plugin {
 		this.addChild(this.viewTabs);
 
 		this.tableColors = new TableColorEnhancer(
+			this.app,
 			() => this.settings,
 			() => this.saveSettings(),
 		);
@@ -39,5 +41,19 @@ export default class ViewsPlugin extends Plugin {
 		await this.saveData(this.settings);
 		this.tableColors?.refresh();
 		this.viewTabs?.refresh();
+		for (const listener of this.propertyColorSettingsListeners) listener();
+	}
+
+	/**
+	 * Writes settings without the refresh fan-out. Remembered scroll positions
+	 * save while the user is scrolling, and must not repaint every open view.
+	 */
+	async persistSettings(): Promise<void> {
+		await this.saveData(this.settings);
+	}
+
+	onPropertyColorSettingsChanged(listener: () => void): () => void {
+		this.propertyColorSettingsListeners.add(listener);
+		return () => this.propertyColorSettingsListeners.delete(listener);
 	}
 }

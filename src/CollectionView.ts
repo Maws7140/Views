@@ -25,9 +25,12 @@ import {
 	resolveCardIcons,
 } from './collection/appearance';
 import { ColorPackId, resolveColorPalette } from './table-colors/palettes';
+import { isPropertyColorEnabled } from './settings/settings';
 import { renderPropertyValue } from './ui/PropertyValueRenderer';
+import { isInteractiveTarget, showFileMenu } from './ui/EntryInteractions';
 import { CollectionScrollbar, ScrollbarOrientation } from './collection/CollectionScrollbar';
 import { reportPerformance } from './performance/metrics';
+import type ViewsPlugin from './main';
 
 export const CollectionViewType = 'more-bases-collection';
 
@@ -52,8 +55,6 @@ interface CollectionConfig extends CollectionAppearanceConfig {
 	snap: boolean;
 	iconPlacement: IconPlacement;
 	propertyValueColors: boolean;
-	propertyValueColorPack: ColorPackId;
-	propertyValueCustomColors: string[];
 	cardCorners: CardCorners;
 }
 
@@ -121,7 +122,7 @@ export class CollectionView extends BasesView {
 	private retentionFrame: number | null = null;
 	private activeRenderContext: CollectionRenderContext | null = null;
 
-	constructor(controller: QueryController, parentEl: HTMLElement) {
+	constructor(private readonly plugin: ViewsPlugin, controller: QueryController, parentEl: HTMLElement) {
 		super(controller);
 		this.scrollHostEl = parentEl.createDiv({ cls: 'mbv-collection-shell' });
 		this.containerEl = this.scrollHostEl.createDiv({ cls: 'mbv-collection' });
@@ -133,6 +134,10 @@ export class CollectionView extends BasesView {
 		this.registerDomEvent(this.containerEl, 'keydown', (event) => this.handleCardKeyDown(event));
 		this.registerDomEvent(this.containerEl, 'pointerover', (event) => this.ensureHoveredCardScrollbar(event));
 		this.registerDomEvent(this.containerEl, 'focusin', (event) => this.ensureHoveredCardScrollbar(event));
+		this.register(this.plugin.onPropertyColorSettingsChanged(() => {
+			this.lastRenderSignature = '';
+			this.onDataUpdated();
+		}));
 	}
 
 	static getViewOptions(): ViewOption[] {
@@ -151,11 +156,12 @@ export class CollectionView extends BasesView {
 					{
 						type: 'slider',
 						key: 'cardWidth',
+						// Every size slider in the plugin steps by 1.
 						displayName: 'Card size',
 						default: 240,
 						min: 48,
 						max: 960,
-						step: 4,
+						step: 1,
 						instant: true,
 					},
 					{
@@ -165,7 +171,7 @@ export class CollectionView extends BasesView {
 						default: 160,
 						min: 48,
 						max: 960,
-						step: 4,
+						step: 1,
 						instant: true,
 						// Obsidian supports this runtime ViewOption predicate even though
 						// it is not yet declared in the public type definitions.
@@ -178,7 +184,7 @@ export class CollectionView extends BasesView {
 						default: 16,
 						min: 0,
 						max: 32,
-						step: 2,
+						step: 1,
 						instant: true,
 					},
 					{
@@ -310,19 +316,6 @@ export class CollectionView extends BasesView {
 						displayName: 'Automatic tag and list colors',
 						default: true,
 					},
-					{
-						type: 'dropdown',
-						key: 'propertyValueColorPack',
-						displayName: 'Property value color pack',
-						default: 'notion',
-						options: { notion: 'Notion', pastel: 'Pastel', vivid: 'Vivid', earth: 'Earth', custom: 'Custom' },
-					},
-					{
-						type: 'multitext',
-						key: 'propertyValueCustomColors',
-						displayName: 'Custom property value colors',
-						default: [],
-					},
 				],
 			},
 			{
@@ -440,8 +433,6 @@ export class CollectionView extends BasesView {
 			showIcons: this.config.get('showIcons') !== false,
 			iconPlacement: this.iconPlacement(iconPlacement),
 			propertyValueColors: this.config.get('propertyValueColors') !== false,
-			propertyValueColorPack: this.colorPack(this.config.get('propertyValueColorPack')),
-			propertyValueCustomColors: this.stringListOption('propertyValueCustomColors'),
 			// Preserve the old boolean setting while using an explicit dropdown value
 			// that Bases reliably persists for square corners.
 			cardCorners: cardCorners === 'square'
@@ -609,8 +600,8 @@ export class CollectionView extends BasesView {
 			config,
 			detailProperties,
 			cardPalette: resolveColorPalette(config.colorPack, config.customColors, false),
-			valuePalette: config.propertyValueColors
-				? resolveColorPalette(config.propertyValueColorPack, config.propertyValueCustomColors)
+			valuePalette: config.propertyValueColors && this.plugin.settings.tableColorsEnabled
+				? resolveColorPalette(this.plugin.settings.colorPack, this.plugin.settings.customPalette)
 				: undefined,
 			notebookNavigator: config.folderIconSource === 'notebook-navigator'
 				? getNotebookNavigatorApi(this.app)
@@ -841,8 +832,7 @@ export class CollectionView extends BasesView {
 	}
 
 	private isInteractiveTarget(event: Event, includeLinks = true): boolean {
-		return event.target instanceof Element
-			&& Boolean(event.target.closest(`${includeLinks ? 'a, ' : ''}button, input, select, textarea, .mbv-scrollbar`));
+		return isInteractiveTarget(event, includeLinks);
 	}
 
 	private cancelCardOpen(card: HTMLElement): void {
@@ -1069,11 +1059,12 @@ export class CollectionView extends BasesView {
 			const rowEl = detailsEl.createDiv({ cls: 'mbv-card-detail' });
 			rowEl.createSpan({ cls: 'mbv-card-detail-label', text: displayName });
 			const valueEl = rowEl.createDiv({ cls: 'mbv-card-detail-value' });
+			const propertyColorsEnabled = isPropertyColorEnabled(this.plugin.settings, property);
 			renderPropertyValue(valueEl, value, {
 				app: this.app,
 				property,
 				displayName,
-				valueColorPalette: context.valuePalette,
+				valueColorPalette: propertyColorsEnabled ? context.valuePalette : undefined,
 				onBooleanChange: property.startsWith('note.')
 					? (checked) => this.updateBooleanProperty(entry, property, checked)
 					: undefined,
@@ -1160,15 +1151,6 @@ export class CollectionView extends BasesView {
 	}
 
 	private showFileMenu(entry: BasesEntry, event: MouseEvent): void {
-		const menu = Menu.forEvent(event);
-		const menuWithSections = menu as Menu & { addSections?: (sections: string[]) => Menu };
-		menuWithSections.addSections?.(['title', 'open', 'action-primary', 'action', 'info', 'view', 'system', '', 'danger']);
-		this.app.workspace.handleLinkContextMenu(menu, entry.file.path, '');
-		menu.addItem((item) => item
-			.setSection('danger')
-			.setTitle('Delete')
-			.setIcon('lucide-trash-2')
-			.setWarning(true)
-			.onClick(() => this.app.fileManager.promptForDeletion(entry.file)));
+		showFileMenu(this.app, entry.file, event);
 	}
 }

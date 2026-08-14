@@ -45,6 +45,9 @@ export function renderPropertyValue(
 		renderList(container, value, context);
 		return;
 	}
+	if (!(value instanceof TagValue)) {
+		applyPropertyValuePill(container, value, context.valueColorPalette);
+	}
 	if (value instanceof DateValue) {
 		renderDate(container, value, context.property);
 		return;
@@ -90,27 +93,59 @@ function renderPill(
 	context: PropertyValueRenderContext,
 	tag: boolean,
 ): void {
-	const pillEl = container.createSpan({ cls: 'views-property-pill' });
-	if (tag || value instanceof TagValue) pillEl.addClass('is-tag');
-	const rawValue = value.toString().trim();
-	applyPropertyValueColor(pillEl, rawValue, context.valueColorPalette);
+	const itemEl = container.createSpan({ cls: 'views-property-item' });
+	if (tag || value instanceof TagValue) itemEl.addClass('is-tag');
+	applyPropertyValuePill(itemEl, value, context.valueColorPalette);
 	if (isRichValue(value)) {
-		value.renderTo(pillEl, context.app.renderContext);
+		value.renderTo(itemEl, context.app.renderContext);
 	} else {
-		pillEl.setText(value.toString());
+		itemEl.setText(value.toString());
 	}
+}
+
+/**
+ * The pill surface exists only to carry an automatic color. A value with no
+ * color keeps Obsidian's plain presentation instead of an empty chip.
+ */
+export function applyPropertyValuePill(
+	element: HTMLElement,
+	value: unknown,
+	palette: string[] | undefined,
+): boolean {
+	if (!applyPropertyValueColor(element, value, palette)) return false;
+	element.addClass('views-property-pill');
+	return true;
 }
 
 /** Apply the shared Collection/Table automatic value-color treatment. */
 export function applyPropertyValueColor(
 	element: HTMLElement,
-	rawValue: string,
+	value: unknown,
 	palette: string[] | undefined,
-): void {
-	const color = palette?.length ? stableColor(rawValue, palette) : null;
-	if (!color) return;
+): boolean {
+	const color = resolvePropertyValueColor(value, palette);
+	if (!color) return false;
 	element.addClass('has-value-color');
 	element.style.setProperty('--views-property-color', color);
+	return true;
+}
+
+/** The single value-to-color decision used by every property surface. */
+export function resolvePropertyValueColor(value: unknown, palette: string[] | undefined): string | null {
+	if (!palette?.length) return null;
+	const seed = propertyValueColorSeed(value);
+	return seed ? stableColor(seed, palette) : null;
+}
+
+/** Preserve the underlying value identity instead of hashing formatted UI text. */
+export function propertyValueColorSeed(value: unknown): string {
+	if (value === null || value === undefined) return '';
+	if (typeof value === 'boolean') return value ? 'true' : 'false';
+	if (typeof value === 'number') return Number.isFinite(value) ? String(value) : '';
+	if (typeof value === 'string') return value.trim();
+	if (value instanceof Date) return value.toISOString();
+	if (value instanceof Value) return value.toString().trim();
+	return String(value).trim();
 }
 
 function renderDate(container: HTMLElement, value: DateValue, property: BasesPropertyId): void {

@@ -4,18 +4,34 @@ import {
     BasesPropertyId,
     BasesView,
     DateValue,
+    Notice,
     QueryController,
     ViewOption,
     TFile,
     type ListValue,
-    type StringValue,
 } from 'obsidian';
 import { TimelineRenderer, type TimelineRendererData } from './TimelineRenderer';
-import type { TimelineConfig, TimelineItem } from './types';
+import {
+	automaticColorPalette,
+	colorViewOptions,
+	iconViewOptions,
+	readAppearanceConfig,
+	resolveCardColor,
+	type CollectionAppearanceConfig,
+} from './collection/appearance';
+import { EntryInteractions, type EntryTarget } from './ui/EntryInteractions';
+import { isPropertyColorEnabled } from './settings/settings';
+import { parseCustomPalette, resolveColorPalette } from './table-colors/palettes';
+import { resolvePropertyValueColor } from './ui/PropertyValueRenderer';
+import type { TimelineConfig, TimelineItem, TimelineItemProperty, TimelineViewportState } from './types';
 import type BasesTimelinePlugin from './main';
 import { CalendarPickerModal } from './ui/CalendarPickerModal';
 
 export const TimelineViewType = 'bases-timeline-view';
+
+/** Spellings a vault or task plugin uses for a finished item. */
+const DONE_VALUES = new Set(['true', 'yes', 'done', 'complete', 'completed', 'x', '✅']);
+const VIEWPORT_SAVE_DELAY = 600;
 
 export class TimelineView extends BasesView {
 	type = TimelineViewType;
@@ -26,7 +42,14 @@ export class TimelineView extends BasesView {
 
 	private startProp: BasesPropertyId | null = null;
 	private endProp: BasesPropertyId | null = null;
-	private groupProp: BasesPropertyId | null = null;
+	private colorProp: BasesPropertyId | null = null;
+	private appearanceCache: CollectionAppearanceConfig | null = null;
+	private restoredViewport = false;
+	private pendingViewport: TimelineViewportState | null = null;
+	private viewportSaveTimer: number | null = null;
+	private detachInteractions: (() => void) | null = null;
+	private unsubscribeColors: (() => void) | null = null;
+	private doneProp: BasesPropertyId | null = null;
 
 	constructor(
 		private readonly plugin: BasesTimelinePlugin,
@@ -39,17 +62,84 @@ export class TimelineView extends BasesView {
         
         // Create container for the current view renderer
         this.rendererContainer = this.containerEl.createDiv({ cls: 'tl-renderer-container' });
-        this.renderer = new TimelineRenderer(this.rendererContainer, {
+        this.renderer = new TimelineRenderer(this.rendererContainer, this.app, {
             openCalendarPicker: () => this.openCalendarPicker(),
-            onOpenItem: (item) => this.openItem(item),
+            onToggleDone: (item, done) => this.setItemDone(item, done),
+            onViewportChanged: (state) => this.rememberViewport(state),
         });
+        // Bound here rather than in onload, matching how the Collection view
+        // registers its handlers, so they exist as soon as the view does.
+        this.detachInteractions = new EntryInteractions(this.app, {
+            resolve: (event) => this.resolveTarget(event),
+        }).attach(this.containerEl);
+        this.unsubscribeColors = this.plugin.onPropertyColorSettingsChanged(() => this.onDataUpdated());
+    }
+
+    /**
+     * Scrolling fires continuously, so the write is debounced and skipped when
+     * nothing moved. It uses `persistSettings` to avoid repainting every view
+     * mid-scroll.
+     */
+    private rememberViewport(state: TimelineViewportState): void {
+        this.pendingViewport = state;
+        if (this.viewportSaveTimer !== null) return;
+        this.viewportSaveTimer = window.setTimeout(() => {
+            this.viewportSaveTimer = null;
+            const pending = this.pendingViewport;
+            this.pendingViewport = null;
+            if (!pending) return;
+            const key = this.viewportKey();
+            const previous = this.plugin.settings.timelineViewports[key];
+            if (previous
+                && previous.startTs === pending.startTs
+                && previous.pxPerDay === pending.pxPerDay
+                && previous.scrollLeft === pending.scrollLeft) return;
+            this.plugin.settings.timelineViewports[key] = { ...pending, updatedAt: Date.now() };
+            void this.plugin.persistSettings();
+        }, VIEWPORT_SAVE_DELAY);
+    }
+
+    /**
+     * Keyed by base file and view name. The base path is not exposed to views,
+     * so it comes from the owning leaf, the same way the table color enhancer
+     * resolves it. Falls back to the view name alone for embedded bases.
+     */
+    private viewportKey(): string {
+        for (const leaf of this.app.workspace.getLeavesOfType('bases')) {
+            if (!leaf.view.containerEl.contains(this.containerEl)) continue;
+            const filePath = leaf.getViewState().state?.file;
+            if (typeof filePath === 'string') return `${filePath}::${this.config.name}`;
+        }
+        return `::${this.config.name}`;
     }
 
 	onload(): void {
-		// Future lifecycle hooks will be registered here.
+		// Handlers are bound in the constructor.
+	}
+
+	private resolveTarget(event: Event): EntryTarget | null {
+		const target = event.target instanceof Element
+			? event.target.closest<HTMLElement>('.tl-bar, .tl-dot')
+			: null;
+		const path = target?.getAttribute('data-id');
+		const file = path ? this.app.vault.getAbstractFileByPath(path) : null;
+		return target && file instanceof TFile ? { el: target, file } : null;
 	}
 
     onunload(): void {
+        if (this.viewportSaveTimer !== null) {
+            window.clearTimeout(this.viewportSaveTimer);
+            this.viewportSaveTimer = null;
+            if (this.pendingViewport) {
+                this.plugin.settings.timelineViewports[this.viewportKey()] = {
+                    ...this.pendingViewport,
+                    updatedAt: Date.now(),
+                };
+                void this.plugin.persistSettings();
+            }
+        }
+        this.detachInteractions?.();
+        this.unsubscribeColors?.();
         this.renderer.destroy();
     }
 
@@ -75,6 +165,11 @@ export class TimelineView extends BasesView {
 		const config = this.loadConfig();
 		const rendererData = this.buildRendererData(config);
 		this.renderer.updateData(rendererData, config);
+		if (!this.restoredViewport) {
+			this.restoredViewport = true;
+			const saved = this.plugin.settings.timelineViewports[this.viewportKey()];
+			if (saved && rendererData.items.length) this.renderer.restoreViewport(saved);
+		}
 	}
 
     getViewSettingsEl(): HTMLElement {
@@ -110,11 +205,18 @@ export class TimelineView extends BasesView {
 						placeholder: 'Optional end date',
 					},
 					{
-						displayName: 'Lane property',
+						displayName: 'Color by property',
 						type: 'property',
-						key: 'laneProperty',
+						key: 'colorProperty',
 						filter: () => true,
-						placeholder: 'Group lanes',
+						placeholder: 'Tint bars by value',
+					},
+					{
+						displayName: 'Completed property',
+						type: 'property',
+						key: 'doneProperty',
+						filter: () => true,
+						placeholder: 'Checkbox property',
 					},
 				],
 			},
@@ -122,6 +224,22 @@ export class TimelineView extends BasesView {
 				displayName: 'Display',
 				type: 'group',
 				items: [
+					{
+						displayName: 'Show properties on bars',
+						type: 'toggle',
+						key: 'showBarProperties',
+						default: true,
+					},
+					{
+						displayName: 'Timeline height',
+						type: 'slider',
+						key: 'viewportHeight',
+						default: 0,
+						min: 0,
+						max: 1200,
+						step: 1,
+						instant: true,
+					},
 					{
 						displayName: 'Show weekends',
 						type: 'toggle',
@@ -159,19 +277,22 @@ export class TimelineView extends BasesView {
 					},
 				],
 			},
+			colorViewOptions('Bar colors'),
+			iconViewOptions(),
 		];
 	}
 
 	private loadConfig(): TimelineConfig {
+		this.appearanceCache = null;
 		this.startProp = this.getConfigPropertyId('startProp');
 		this.endProp = this.getConfigPropertyId('endProp');
-		this.groupProp = this.getConfigPropertyId('laneProperty') ?? this.getLegacyLanePropertyId();
+		this.colorProp = this.getConfigPropertyId('colorProperty');
+		this.doneProp = this.getConfigPropertyId('doneProperty');
 
 		// Plugin defaults are runtime fallbacks only. Writing them into the Base from
 		// onDataUpdated causes stale values to win over changes made in Obsidian.
 		this.startProp ??= this.normalizePropertyId(this.plugin.settings.defaultStartProp);
 		this.endProp ??= this.normalizePropertyId(this.plugin.settings.defaultEndProp);
-		this.groupProp ??= this.normalizePropertyId(this.plugin.settings.defaultGroupBy);
 
         const validateString = (key: string, fallback: string) => {
 			const value = this.config.get(key);
@@ -182,12 +303,15 @@ export class TimelineView extends BasesView {
             viewType: 'timeline',
             startProp: this.startProp ?? '',
             endProp: this.endProp || undefined,
-            groupBy: this.groupProp || undefined,
+            colorProperty: this.colorProp || undefined,
+            doneProperty: this.doneProp || undefined,
             dateSource: 'property',
             zoomLevel: 'month',
             showWeekends: true,
             density: 'comfortable',
-            highContrast: false
+            highContrast: false,
+            showBarProperties: this.config.get('showBarProperties') !== false,
+            viewportHeight: this.numberOption('viewportHeight', 0),
         };
 
 		const dateSource = validateString('dateSource', this.plugin.settings.defaultDateSource ?? 'property');
@@ -317,14 +441,11 @@ export class TimelineView extends BasesView {
 		return trimmed ? (trimmed as BasesPropertyId) : null;
 	}
 
-	private getLegacyLanePropertyId(): BasesPropertyId | null {
-		// Versions <= 0.1.0 incorrectly used the reserved core Bases `groupBy`
-		// key. Only accept the legacy value when it is a plain property string;
-		// never touch the core grouping object.
-		const legacy = this.config.get('groupBy');
-		return typeof legacy === 'string' && legacy.trim()
-			? (legacy.trim() as BasesPropertyId)
-			: null;
+	private numberOption(key: string, fallback: number): number {
+		const value = this.config.get(key);
+		if (typeof value === 'number' && Number.isFinite(value)) return value;
+		const parsed = typeof value === 'string' ? Number(value) : NaN;
+		return Number.isFinite(parsed) ? parsed : fallback;
 	}
 
 	private normalizePropertyId(value: string | undefined | null): BasesPropertyId | null {
@@ -335,50 +456,28 @@ export class TimelineView extends BasesView {
 	private buildRendererData(config: TimelineConfig): TimelineRendererData {
 		const items: TimelineItem[] = [];
 		const noDate: TimelineItem[] = [];
-        const entries = this.data?.data ?? [];
 
-        for (const entry of entries) {
-            let groupKey: string | null = null;
-            if (this.groupProp) {
-                const val = entry.getValue(this.groupProp);
-                const str = val ? val.toString() : '';
-                groupKey = str ? str : 'Unassigned';
-            }
-
-            const item = this.toTimelineItem(entry, groupKey, config);
-            if (item.startTs == null) {
-                noDate.push(item);
-            } else {
-                items.push(item);
+        for (const group of this.getVisibleGroups()) {
+            const groupKey = group.key?.isTruthy() ? group.key.toString() : null;
+            for (const entry of group.entries) {
+                const item = this.toTimelineItem(entry, groupKey, config);
+                if (item.startTs == null) noDate.push(item);
+                else items.push(item);
             }
         }
 
 		return { items, noDateItems: noDate };
 	}
 
-	private getGroupKey(group: BasesEntryGroup): string | null {
-		const { key } = group;
-		const hasKeyFn = (group as { hasKey?: () => boolean }).hasKey;
-		const hasKey = typeof hasKeyFn === 'function' ? hasKeyFn.call(group) : key != null;
-		if (!hasKey || !key) {
-			return null;
-		}
-
-		const keyValue: unknown = key;
-
-		if (typeof keyValue === 'string') {
-			return keyValue;
-		}
-
-		if (this.isStringValue(keyValue)) {
-			return keyValue.toString();
-		}
-
-		if (this.isDateValue(keyValue)) {
-			return keyValue.toString();
-		}
-
-		return String(keyValue);
+	/**
+	 * `groupedData` is the Bases API's authoritative render projection: it has
+	 * already applied native grouping, sorting, filtering, and limits. Lanes and
+	 * row order come from there rather than from a view option of our own, so
+	 * the timeline answers to the same Group by and Sort by menus as every
+	 * other Bases view.
+	 */
+	private getVisibleGroups(): BasesEntryGroup[] {
+		return (this.data?.groupedData ?? []).filter((group) => group.entries.length > 0);
 	}
 
 	private toTimelineItem(entry: BasesEntry, groupKey: string | null, config: TimelineConfig): TimelineItem {
@@ -408,7 +507,105 @@ export class TimelineView extends BasesView {
 			startTs: startTs ?? undefined,
 			endTs: endTs ?? undefined,
 			groupKey: groupKey ?? undefined,
+			color: this.resolveItemColor(entry, groupKey) ?? undefined,
+			properties: config.showBarProperties ? this.collectBarProperties(entry) : [],
+			done: this.resolveDone(entry),
 		};
+	}
+
+	/**
+	 * Bars are tinted through the same pipeline as pills and table cells, so a
+	 * value keeps one color across every surface. Picking "Color by" in the view
+	 * is already an explicit choice, so it is not gated by the global allowlist
+	 * the way automatic value pills are. With no explicit choice, the native
+	 * group key colors the bar, so a grouped timeline is readable with no
+	 * configuration at all.
+	 */
+	private resolveItemColor(entry: BasesEntry, groupKey: string | null): string | null {
+		// Same vocabulary as a Collection card: frontmatter colour, automatic
+		// colour from title, folder, or a property, or off, with the view's own
+		// pack. A one-colour custom pack therefore makes every bar that colour.
+		const appearance = this.appearance();
+		if (appearance.colorMode !== 'none') {
+			const title = entry.file.basename;
+			return resolveCardColor(entry, appearance, title, this.app, automaticColorPalette(appearance));
+		}
+		// Legacy behaviour for views configured before the shared options: an
+		// explicit Color by property, else the native group key.
+		if (!this.plugin.settings.tableColorsEnabled) return null;
+		const seed = this.colorProp ? entry.getValue(this.colorProp) : groupKey;
+		if (seed === null || seed === undefined) return null;
+		return resolvePropertyValueColor(seed, this.valuePalette());
+	}
+
+	/** View pack when chosen, otherwise the pack from the Colors settings. */
+	private appearance(): CollectionAppearanceConfig {
+		if (this.appearanceCache) return this.appearanceCache;
+		const appearance = readAppearanceConfig(this.config);
+		if (this.config.get('colorPack') === undefined) {
+			appearance.colorPack = this.plugin.settings.colorPack;
+			appearance.customColors = parseCustomPalette(this.plugin.settings.customPalette);
+		}
+		this.appearanceCache = appearance;
+		return appearance;
+	}
+
+	/** The view's own Properties menu decides what rides along on each bar. */
+	private collectBarProperties(entry: BasesEntry): TimelineItemProperty[] {
+		const skip = new Set([this.startProp, this.endProp, this.doneProp].filter(Boolean) as string[]);
+		const properties: TimelineItemProperty[] = [];
+		for (const property of this.config.getOrder()) {
+			if (skip.has(property)) continue;
+			const value = entry.getValue(property);
+			if (value === null || value === undefined) continue;
+			properties.push({
+				property,
+				displayName: this.config.getDisplayName(property),
+				value,
+				palette: isPropertyColorEnabled(this.plugin.settings, property)
+					? this.valuePalette()
+					: undefined,
+			});
+		}
+		return properties;
+	}
+
+	private valuePalette(): string[] {
+		const appearance = this.appearance();
+		return resolveColorPalette(appearance.colorPack, appearance.customColors);
+	}
+
+	/**
+	 * A completion property is either a real checkbox or a status whose value
+	 * reads as finished, which is how most task workflows in a vault spell it.
+	 */
+	private resolveDone(entry: BasesEntry): boolean | undefined {
+		if (!this.doneProp) return undefined;
+		const value = entry.getValue(this.doneProp);
+		if (value === null || value === undefined) return false;
+		const text = value.toString().trim().toLocaleLowerCase();
+		if (!text) return false;
+		return DONE_VALUES.has(text);
+	}
+
+	private async setItemDone(item: TimelineItem, done: boolean): Promise<void> {
+		if (!this.doneProp) return;
+		const key = this.doneProp.startsWith('note.') ? this.doneProp.slice('note.'.length) : null;
+		if (!key) {
+			new Notice('Only note properties can be toggled from the timeline.');
+			throw new Error('Unsupported completion property');
+		}
+		const entry = this.findEntryForItem(item);
+		const file = entry?.file ?? this.app.vault.getAbstractFileByPath(item.id);
+		if (!(file instanceof TFile)) {
+			new Notice(`Unable to update ${item.title}.`);
+			throw new Error('Missing file for timeline item');
+		}
+		await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+			const existing = Object.keys(frontmatter)
+				.find((candidate) => candidate.toLocaleLowerCase() === key.toLocaleLowerCase());
+			frontmatter[existing ?? key] = done;
+		});
 	}
 
 	/**
@@ -461,10 +658,6 @@ export class TimelineView extends BasesView {
 	private parseDateString(input: string): number | null {
 		const timestamp = Date.parse(input);
 		return Number.isFinite(timestamp) ? timestamp : null;
-	}
-
-	private isStringValue(value: unknown): value is StringValue {
-		return Boolean(value && typeof (value as StringValue).toString === 'function');
 	}
 
   private extractDateFromUnknown(value: unknown): DateValue | null {

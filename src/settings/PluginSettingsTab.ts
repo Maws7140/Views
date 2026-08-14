@@ -1,7 +1,20 @@
-﻿import { App, PluginSettingTab, Setting } from 'obsidian';
+import { App, parseYaml, PluginSettingTab, Setting } from 'obsidian';
 import type ViewsPlugin from '../main';
+import { normalizeColorPropertyId } from './settings';
+
+type SettingsSection = 'general' | 'colors';
+
+const FILE_PROPERTY_IDS = [
+	'file.file', 'file.name', 'file.basename', 'file.fullname', 'file.path', 'file.folder',
+	'file.ext', 'file.ctime', 'file.mtime', 'file.size', 'file.links', 'file.backlinks',
+	'file.embeds', 'file.tags',
+];
 
 export class TimelinePluginSettingTab extends PluginSettingTab {
+	private section: SettingsSection = 'general';
+	private propertyFilter = '';
+	private propertyRenderToken = 0;
+
 	constructor(app: App, private plugin: ViewsPlugin) {
 		super(app, plugin);
 	}
@@ -9,11 +22,36 @@ export class TimelinePluginSettingTab extends PluginSettingTab {
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
-
 		containerEl.createEl('h2', { text: 'Views' });
-		new Setting(containerEl)
+		this.renderSectionTabs(containerEl);
+		if (this.section === 'colors') this.renderColorSettings(containerEl);
+		else this.renderGeneralSettings(containerEl);
+	}
+
+	private renderSectionTabs(container: HTMLElement): void {
+		const tabs = container.createDiv({ cls: 'views-settings-tabs', attr: { role: 'tablist' } });
+		for (const [section, label] of [['general', 'General'], ['colors', 'Colors']] as const) {
+			const button = tabs.createEl('button', {
+				cls: 'views-settings-tab',
+				text: label,
+				attr: {
+					type: 'button',
+					role: 'tab',
+					'aria-selected': this.section === section ? 'true' : 'false',
+				},
+			});
+			button.toggleClass('is-active', this.section === section);
+			button.addEventListener('click', () => {
+				this.section = section;
+				this.display();
+			});
+		}
+	}
+
+	private renderGeneralSettings(container: HTMLElement): void {
+		new Setting(container)
 			.setName('Horizontal Base view tabs')
-			.setDesc('Show Base views as responsive horizontal tabs while preserving Obsidian’s native view manager.')
+			.setDesc('Show Base views as responsive horizontal tabs while preserving the native view manager in Obsidian.')
 			.addToggle((toggle) => toggle
 				.setValue(this.plugin.settings.horizontalViewTabsEnabled)
 				.onChange(async (value) => {
@@ -21,72 +59,56 @@ export class TimelinePluginSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
-		containerEl.createEl('h3', { text: 'Timeline defaults' });
-		containerEl.createEl('p', {
+		container.createEl('h3', { text: 'Timeline defaults' });
+		container.createEl('p', {
 			text: 'Set defaults for new timeline views. You can override these per view from the Timeline toolbar.',
 		});
 
-		new Setting(containerEl)
+		new Setting(container)
 			.setName('Default date source')
 			.setDesc('Choose whether to use a frontmatter property or file metadata for item dates by default.')
-			.addDropdown(dropdown => {
-				dropdown
-					.addOption('property', 'Property')
-					.addOption('lifespan', 'File lifespan (created to modified)')
-					.setValue(this.plugin.settings.defaultDateSource ?? 'property')
-					.onChange(async (value) => {
-						this.plugin.settings.defaultDateSource = value as 'property' | 'lifespan';
-						await this.plugin.saveSettings();
-					});
-			});
+			.addDropdown((dropdown) => dropdown
+				.addOption('property', 'Property')
+				.addOption('lifespan', 'File lifespan (created to modified)')
+				.setValue(this.plugin.settings.defaultDateSource ?? 'property')
+				.onChange(async (value) => {
+					this.plugin.settings.defaultDateSource = value as 'property' | 'lifespan';
+					await this.plugin.saveSettings();
+				}));
 
-		new Setting(containerEl)
+		new Setting(container)
 			.setName('Default start property')
 			.setDesc('Property ID used as the start date when a view has none configured. Example: note.published')
-			.addText(text => {
-				text
-					.setPlaceholder('note.created')
-					.setValue(this.plugin.settings.defaultStartProp ?? '')
-					.onChange(async (value) => {
-						this.plugin.settings.defaultStartProp = value.trim();
-						await this.plugin.saveSettings();
-					});
-			});
+			.addText((text) => text
+				.setPlaceholder('note.created')
+				.setValue(this.plugin.settings.defaultStartProp ?? '')
+				.onChange(async (value) => {
+					this.plugin.settings.defaultStartProp = value.trim();
+					await this.plugin.saveSettings();
+				}));
 
-		new Setting(containerEl)
+		new Setting(container)
 			.setName('Default end property')
 			.setDesc('Optional property ID used for end dates when no view preference exists.')
-			.addText(text => {
-				text
-					.setPlaceholder('note.due')
-					.setValue(this.plugin.settings.defaultEndProp ?? '')
-					.onChange(async (value) => {
-						this.plugin.settings.defaultEndProp = value.trim();
-						await this.plugin.saveSettings();
-					});
-			});
+			.addText((text) => text
+				.setPlaceholder('note.due')
+				.setValue(this.plugin.settings.defaultEndProp ?? '')
+				.onChange(async (value) => {
+					this.plugin.settings.defaultEndProp = value.trim();
+					await this.plugin.saveSettings();
+				}));
 
-		new Setting(containerEl)
-			.setName('Default lane property')
-			.setDesc('Property ID applied for grouping lanes when a view has no configured value.')
-			.addText(text => {
-				text
-					.setPlaceholder('note.status')
-					.setValue(this.plugin.settings.defaultGroupBy ?? '')
-					.onChange(async (value) => {
-						this.plugin.settings.defaultGroupBy = value.trim();
-						await this.plugin.saveSettings();
-					});
-			});
+	}
 
-		containerEl.createEl('h3', { text: 'Native table colors' });
-		containerEl.createEl('p', {
-			text: 'Color individual property values in Obsidian’s built-in Bases table. Double-click a column header to enable or disable colors for that column.',
+	private renderColorSettings(container: HTMLElement): void {
+		container.createEl('h3', { text: 'Automatic property colors' });
+		container.createEl('p', {
+			text: 'One palette and one property policy apply across Collection views, native Bases tables, and note Properties.',
 		});
 
-		new Setting(containerEl)
-			.setName('Enable table colors')
-			.setDesc('Apply the shared property-value color system to native Bases tables without tinting entire rows.')
+		new Setting(container)
+			.setName('Enable property colors')
+			.setDesc('Enable the shared automatic property-value color system. Values only gain a colored pill once their property is enabled below.')
 			.addToggle((toggle) => toggle
 				.setValue(this.plugin.settings.tableColorsEnabled)
 				.onChange(async (value) => {
@@ -94,9 +116,9 @@ export class TimelinePluginSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
-		new Setting(containerEl)
+		new Setting(container)
 			.setName('Color pack')
-			.setDesc('Notion is the restrained default. The same value always receives the same color.')
+			.setDesc('The same normalized value receives the same color everywhere.')
 			.addDropdown((dropdown) => dropdown
 				.addOption('notion', 'Notion')
 				.addOption('pastel', 'Pastel')
@@ -111,7 +133,7 @@ export class TimelinePluginSettingTab extends PluginSettingTab {
 				}));
 
 		if (this.plugin.settings.colorPack === 'custom') {
-			new Setting(containerEl)
+			new Setting(container)
 				.setName('Custom palette')
 				.setDesc('Comma-separated CSS colors. Invalid entries are ignored.')
 				.addTextArea((text) => text
@@ -123,16 +145,140 @@ export class TimelinePluginSettingTab extends PluginSettingTab {
 					}));
 		}
 
-		new Setting(containerEl)
-			.setName('Color list values')
-			.setDesc('Color tags and multi-select pills automatically by their value.')
-			.addToggle((toggle) => toggle
-				.setValue(this.plugin.settings.colorValuePills)
-				.onChange(async (value) => {
-					this.plugin.settings.colorValuePills = value;
+		container.createEl('h3', { text: 'Properties' });
+		container.createEl('p', {
+			text: 'Control automatic colors globally by property key. A disabled property renders exactly as Obsidian renders it, with no pill, in every Base, Collection, and open note.',
+		});
+		const propertyIds = this.discoverSynchronousPropertyIds();
+		const listEl = container.createDiv({ cls: 'views-property-color-settings' });
+		new Setting(listEl)
+			.setName('Find a property')
+			.setDesc(`${propertyIds.size} properties found · properties start disabled`)
+			.addSearch((search) => search
+				.setPlaceholder('Status, file.folder, formula')
+				.setValue(this.propertyFilter)
+				.onChange((value) => {
+					this.propertyFilter = value;
+					this.renderPropertyToggles(listEl, propertyIds);
+				}))
+			.addButton((button) => button
+				.setButtonText('Enable all')
+				.onClick(async () => {
+					this.plugin.settings.tableColorEnabledProperties = [...propertyIds].map((id) => this.normalizePropertyId(id)).sort();
 					await this.plugin.saveSettings();
+					this.renderPropertyToggles(listEl, propertyIds);
+				}))
+			.addButton((button) => button
+				.setButtonText('Disable all')
+				.onClick(async () => {
+					this.plugin.settings.tableColorEnabledProperties = [];
+					await this.plugin.saveSettings();
+					this.renderPropertyToggles(listEl, propertyIds);
 				}));
+		this.renderPropertyToggles(listEl, propertyIds);
 
+		const token = ++this.propertyRenderToken;
+		void this.discoverBasePropertyIds().then((baseIds) => {
+			if (token !== this.propertyRenderToken || this.section !== 'colors' || !listEl.isConnected) return;
+			let changed = false;
+			for (const id of baseIds) {
+				if (!propertyIds.has(id)) changed = true;
+				propertyIds.add(id);
+			}
+			if (changed) this.renderPropertyToggles(listEl, propertyIds);
+		});
+	}
+
+	private renderPropertyToggles(container: HTMLElement, propertyIds: Set<string>): void {
+		container.querySelector('.views-property-color-list')?.remove();
+		const list = container.createDiv({ cls: 'views-property-color-list' });
+		const filter = this.propertyFilter.trim().toLocaleLowerCase();
+		const ids = [...propertyIds]
+			.filter((id) => !filter || id.toLocaleLowerCase().includes(filter) || this.propertyLabel(id).toLocaleLowerCase().includes(filter))
+			.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+		if (!ids.length) {
+			list.createDiv({ cls: 'setting-item-description', text: 'No matching properties.' });
+			return;
+		}
+		for (const propertyId of ids) {
+			const normalized = this.normalizePropertyId(propertyId);
+			new Setting(list)
+				.setName(this.propertyLabel(propertyId))
+				.setDesc(normalized)
+				.addToggle((toggle) => toggle
+					.setValue(this.isPropertyEnabled(normalized))
+					.onChange(async (enabled) => {
+						const enabledProperties = new Set(this.plugin.settings.tableColorEnabledProperties.map((id) => this.normalizePropertyId(id)));
+						if (enabled) enabledProperties.add(normalized);
+						else enabledProperties.delete(normalized);
+						this.plugin.settings.tableColorEnabledProperties = [...enabledProperties].sort();
+						await this.plugin.saveSettings();
+					}));
+		}
+	}
+
+	private discoverSynchronousPropertyIds(): Set<string> {
+		const ids = new Set(FILE_PROPERTY_IDS);
+		for (const file of this.app.vault.getMarkdownFiles()) {
+			const frontmatter = this.app.metadataCache.getFileCache(file)?.frontmatter;
+			if (!frontmatter) continue;
+			for (const key of Object.keys(frontmatter)) {
+				if (key === 'position') continue;
+				ids.add(this.normalizePropertyId(`note.${key}`));
+			}
+		}
+		for (const enabled of this.plugin.settings.tableColorEnabledProperties) ids.add(this.normalizePropertyId(enabled));
+		return ids;
+	}
+
+	private async discoverBasePropertyIds(): Promise<Set<string>> {
+		const ids = new Set<string>();
+		const baseFiles = this.app.vault.getFiles().filter((file) => file.extension === 'base');
+		for (const file of baseFiles) {
+			try {
+				const parsed = parseYaml(await this.app.vault.cachedRead(file)) as Record<string, unknown> | null;
+				if (!parsed) continue;
+				const formulas = parsed.formulas;
+				if (formulas && typeof formulas === 'object') {
+					for (const key of Object.keys(formulas)) ids.add(`formula.${key}`);
+				}
+				const views = Array.isArray(parsed.views) ? parsed.views : [];
+				for (const view of views) this.collectPropertyIds(view, ids);
+			} catch {
+				// A malformed or concurrently edited Base should not block settings.
+			}
+		}
+		return ids;
+	}
+
+	private collectPropertyIds(value: unknown, ids: Set<string>): void {
+		if (Array.isArray(value)) {
+			for (const item of value) this.collectPropertyIds(item, ids);
+			return;
+		}
+		if (!value || typeof value !== 'object') return;
+		for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+			if ((key === 'property' || key.endsWith('Property')) && typeof child === 'string' && child.trim()) {
+				ids.add(this.normalizePropertyId(child));
+			} else if (key === 'order' && Array.isArray(child)) {
+				for (const property of child) if (typeof property === 'string') ids.add(this.normalizePropertyId(property));
+			}
+			this.collectPropertyIds(child, ids);
+		}
+	}
+
+	private normalizePropertyId(propertyId: string): string {
+		return normalizeColorPropertyId(propertyId);
+	}
+
+	private isPropertyEnabled(propertyId: string): boolean {
+		return this.plugin.settings.tableColorEnabledProperties
+			.some((enabled) => this.normalizePropertyId(enabled) === propertyId);
+	}
+
+	private propertyLabel(propertyId: string): string {
+		const [source, ...parts] = propertyId.split('.');
+		const name = parts.join('.') || propertyId;
+		return `${name} · ${source}`;
 	}
 }
-
