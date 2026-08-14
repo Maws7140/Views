@@ -2419,23 +2419,29 @@
   letter-spacing: 0.06em;
 }
 
-/* The row is a grid, not a flex line, and the reason is the whole bug this
-   view kept having.
- 
-   In flex, a row's width is negotiated between its two halves: the title block
-   grew into the free space, the properties took what was left, and when that was
-   short they were clipped. Which half gave way depended on grow, shrink and
-   basis interacting, and three separate attempts to tune those produced three
-   different wrong answers.
- 
-   Two grid tracks state the intent directly. The properties column is sized to
-   its content and takes what it needs. The title column takes the rest, and
-   `minmax(0, 1fr)` lets it collapse all the way to nothing before the browser
-   will consider taking a pixel from the properties. A long name can therefore
-   make the title short but can never clip a date. */
+/* The row is a grid, and which track is flexible is the whole of this bug.
+
+   As a flex line the two halves negotiated: the title grew into the free space
+   and the properties took what was left, so a row with three properties clipped
+   the last one. Moving to a grid did not fix it on its own, because an `auto`
+   track loses to an `fr` track: with `minmax(0, 1fr)` on the title the browser
+   handed the title 966px for 88px of text and left the properties 220px for
+   323px of content.
+
+   Worse, the properties box could not be sized from its contents at all. Its
+   max-content resolved to 220px whatever it actually held, verified by forcing
+   `width: max-content` inline and watching the used width refuse to move. So
+   the layout must not depend on measuring it.
+
+   Hence: the title track is `auto` and the properties track is the flexible
+   one. The properties box is handed the remaining width, a definite length that
+   needs no measuring, and right-aligns its contents inside it. The title takes
+   its own content size and, losing to `fr`, gives way first. A long name
+   therefore shortens the title and cannot clip a date, which is the rule this
+   view needed. */
 .mbv-ray-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
   align-items: center;
   column-gap: var(--size-4-3);
   padding: var(--size-2-3) var(--size-4-2);
@@ -2496,18 +2502,19 @@
   display: flex;
   align-items: center;
   gap: var(--size-4-2);
-  justify-self: end;
+  justify-content: flex-end;
   min-width: 0;
   overflow: hidden;
 }
 
-/* Measured, not guessed. Property values are short and stop meaning anything
-   the moment they lose characters, so none of them shrink. The grid above is
-   what guarantees they do not have to. */
+/* Property values are short and stop meaning anything the moment they lose
+   characters, so none of them shrink; the grid above is what guarantees they do
+   not have to. The cap is only a guard against one enormous value taking the
+   whole row. */
 .mbv-ray-prop {
   flex: 0 0 auto;
   min-width: 0;
-  max-width: 24ch;
+  max-width: 40ch;
   overflow: hidden;
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
