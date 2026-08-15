@@ -1,6 +1,6 @@
 import { addDays, daysBetween, localDayKey, startOfLocalDay } from './dateValue';
-import { buildLevels, levelFor, type Aggregation, type HeatLevel, type WeekStart } from './heatBuckets';
 import { stableColor } from '../table-colors/palettes';
+import type { WeekStart } from './heatBuckets';
 
 /**
  * How the day markers encode the color property. The kind is read off the
@@ -9,9 +9,6 @@ import { stableColor } from '../table-colors/palettes';
  * anyone choosing a mode.
  */
 export type MarkerKind = 'plain' | 'boolean' | 'number' | 'category';
-
-/** What a day cell paints. `auto` derives it from the marker kind. */
-export type MarkerStyle = 'auto' | 'dots' | 'fill' | 'none';
 
 /** One reading of the color property. A list property yields several. */
 export interface ValueReading {
@@ -53,10 +50,6 @@ export interface CalendarDay {
 	markers: DayMarker[];
 	/** Markers past the cap, shown as `+n`. */
 	overflow: number;
-	/** Aggregated number for the day, null unless the property holds numbers. */
-	total: number | null;
-	/** Heat band for fill mode. 0 is an unpainted cell. */
-	level: number;
 }
 
 export interface CalendarWeek {
@@ -69,16 +62,14 @@ export interface CalendarMonth {
 	/** Zero-based, as `Date` counts them. */
 	month: number;
 	weeks: CalendarWeek[];
-	levels: HeatLevel[];
 	kind: MarkerKind;
-	/** What the cells actually paint once `auto` has been resolved. */
-	style: Exclude<MarkerStyle, 'auto'>;
+	/** The low and high of the visible month, for the number legend. */
+	range: { min: number; max: number } | null;
 }
 
 export interface MarkerOptions {
-	style: MarkerStyle;
-	aggregation: Aggregation;
 	palette: string[] | undefined;
+	/** Ramp stops, low to high. Values land between them, not on them. */
 	rampColors: string[];
 	maxMarkers: number;
 }
@@ -162,10 +153,47 @@ export function detectKind(samples: CalendarSample[]): MarkerKind {
 	return 'category';
 }
 
-/** Dots for anything countable, a heat fill for a measured quantity. */
-export function resolveStyle(style: MarkerStyle, kind: MarkerKind): Exclude<MarkerStyle, 'auto'> {
-	if (style !== 'auto') return style;
-	return kind === 'number' ? 'fill' : 'dots';
+/**
+ * A value's place on the ramp, as a color. The stops are the colors the user
+ * listed low to high, and a value lands *between* them rather than being
+ * bucketed onto one, so a number property reads as a continuous range instead
+ * of the handful of bands the Heatmap deliberately shows.
+ *
+ * The mixing is left to CSS. `color-mix` accepts every color notation the user
+ * can type, including a theme variable, which a parser here would have to
+ * reimplement and would get wrong for `var(--text-accent)`.
+ */
+export function rampColor(value: number, min: number, max: number, stops: string[]): string | null {
+	if (!stops.length) return null;
+	if (stops.length === 1) return stops[0];
+	// A month whose values are all the same has no low or high to speak of, so
+	// every dot takes the top of the ramp rather than an arbitrary middle.
+	if (max <= min) return stops[stops.length - 1];
+
+	const position = clamp((value - min) / (max - min), 0, 1) * (stops.length - 1);
+	const index = Math.min(Math.floor(position), stops.length - 2);
+	const fraction = position - index;
+	if (fraction <= 0.001) return stops[index];
+	if (fraction >= 0.999) return stops[index + 1];
+	return `color-mix(in srgb, ${stops[index + 1]} ${Math.round(fraction * 100)}%, ${stops[index]})`;
+}
+
+/** The low and high of every number in the month, which the ramp spans. */
+export function numberRange(samples: CalendarSample[]): { min: number; max: number } | null {
+	let min = Infinity;
+	let max = -Infinity;
+	for (const sample of samples) {
+		for (const reading of sample.readings) {
+			if (reading.number === null) continue;
+			min = Math.min(min, reading.number);
+			max = Math.max(max, reading.number);
+		}
+	}
+	return Number.isFinite(min) ? { min, max } : null;
+}
+
+function clamp(value: number, low: number, high: number): number {
+	return Math.min(Math.max(value, low), high);
 }
 
 /**
@@ -194,19 +222,9 @@ export function buildMonth(
 		if (bucket) visible.push(...bucket);
 	}
 	const kind = detectKind(visible);
-	const style = resolveStyle(options.style, kind);
-
-	const totals = new Map<string, number>();
-	if (kind === 'number') {
-		for (let ts = from; ts <= to; ts = addDays(ts, 1)) {
-			const key = localDayKey(ts);
-			const bucket = buckets.get(key);
-			if (bucket?.length) totals.set(key, aggregate(bucket, options.aggregation));
-		}
-	}
-	const levels = kind === 'number'
-		? buildLevels([...totals.values()], options.rampColors, 'linear', [])
-		: [];
+	// The range comes from the visible month alone, so stepping a month rescales
+	// the ramp to what is on screen rather than to an outlier in another year.
+	const range = kind === 'number' ? numberRange(visible) : null;
 
 	const weeks: CalendarWeek[] = [];
 	for (let ts = from; ts <= to; ts = addDays(ts, 7)) {
@@ -216,9 +234,7 @@ export function buildMonth(
 			const key = localDayKey(dayTs);
 			const date = new Date(dayTs);
 			const bucket = buckets.get(key) ?? [];
-			const total = totals.get(key) ?? null;
-			const level = total === null ? 0 : levelFor(total, levels);
-			const built = buildMarkers(bucket, kind, level, levels, options);
+			const built = buildMarkers(bucket, kind, range, options);
 			days.push({
 				key,
 				ts: dayTs,
@@ -228,28 +244,12 @@ export function buildMonth(
 				entries: bucket.map((sample) => ({ path: sample.path, title: sample.title })),
 				markers: built.markers,
 				overflow: built.overflow,
-				total,
-				level,
 			});
 		}
 		weeks.push({ number: weekNumber(ts, weekStart), days });
 	}
 
-	return { year, month, weeks, levels, kind, style };
-}
-
-function aggregate(samples: CalendarSample[], aggregation: Aggregation): number {
-	const values: number[] = [];
-	for (const sample of samples) {
-		for (const reading of sample.readings) {
-			if (reading.number !== null) values.push(reading.number);
-		}
-	}
-	if (!values.length) return 0;
-	if (aggregation === 'max') return Math.max(...values);
-	if (aggregation === 'min') return Math.min(...values);
-	const sum = values.reduce((carry, value) => carry + value, 0);
-	return aggregation === 'average' ? sum / values.length : sum;
+	return { year, month, weeks, kind, range };
 }
 
 /**
@@ -260,8 +260,7 @@ function aggregate(samples: CalendarSample[], aggregation: Aggregation): number 
 function buildMarkers(
 	samples: CalendarSample[],
 	kind: MarkerKind,
-	level: number,
-	levels: HeatLevel[],
+	range: { min: number; max: number } | null,
 	options: MarkerOptions,
 ): { markers: DayMarker[]; overflow: number } {
 	const markers: DayMarker[] = [];
@@ -272,7 +271,7 @@ function buildMarkers(
 			continue;
 		}
 		for (const reading of sample.readings) {
-			markers.push(markerFor(reading, kind, level, levels, options.palette));
+			markers.push(markerFor(reading, kind, range, options));
 		}
 	}
 
@@ -285,10 +284,10 @@ function buildMarkers(
 function markerFor(
 	reading: ValueReading,
 	kind: MarkerKind,
-	level: number,
-	levels: HeatLevel[],
-	palette: string[] | undefined,
+	range: { min: number; max: number } | null,
+	options: MarkerOptions,
 ): DayMarker {
+	const palette = options.palette;
 	if (kind === 'boolean') {
 		// The two colors come from the same palette every other view uses, so
 		// true and false read as the same pair they do in a table. Hollow carries
@@ -300,9 +299,11 @@ function markerFor(
 			label: reading.label,
 		};
 	}
-	if (kind === 'number') {
+	// Each value takes its own place on the ramp, so two notes on one day can
+	// carry two different colors rather than sharing the day's aggregate.
+	if (kind === 'number' && range && reading.number !== null) {
 		return {
-			color: level > 0 ? levels[level - 1]?.color ?? null : null,
+			color: rampColor(reading.number, range.min, range.max, options.rampColors),
 			filled: true,
 			label: reading.label,
 		};

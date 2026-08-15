@@ -2267,16 +2267,12 @@
   outline-color: var(--text-normal);
 }
 
-/* The lower levels mix toward the theme background so the ramp reads in light
-   and dark without a second palette, the same treatment a card colour gets. */
-.mbv-heat-cell[data-level="1"] {
-  background: color-mix(in srgb, var(--mbv-heat-color) 55%, var(--background-primary));
-}
-
-.mbv-heat-cell[data-level="2"] {
-  background: color-mix(in srgb, var(--mbv-heat-color) 78%, var(--background-primary));
-}
-
+/* Every level paints the colour it was given, unmixed. The lower two used to be
+   diluted toward the theme background to help the default ramp read in a light
+   theme, but that also meant a colour the user typed was never the colour that
+   appeared, which is worse than a default that suits one theme better. */
+.mbv-heat-cell[data-level="1"],
+.mbv-heat-cell[data-level="2"],
 .mbv-heat-cell[data-level="3"],
 .mbv-heat-cell[data-level="4"],
 .mbv-heat-cell[data-level="5"],
@@ -2734,7 +2730,7 @@
   min-height: var(--mbv-cal-cell);
   padding: var(--size-2-2) var(--size-2-1);
   border-radius: var(--radius-m);
-  background-color: var(--mbv-cal-fill, transparent);
+  background-color: transparent;
   color: var(--text-normal);
   transition: background-color 120ms ease;
 }
@@ -2744,7 +2740,7 @@
 }
 
 .mbv-cal-day:not(.is-empty):hover {
-  background-color: var(--mbv-cal-fill, var(--background-modifier-hover));
+  background-color: var(--background-modifier-hover);
 }
 
 /* Spill days from the neighbouring months stay readable but recede, so the
@@ -2770,16 +2766,6 @@
 .mbv-cal-day:focus-visible {
   outline: 2px solid var(--interactive-accent);
   outline-offset: -2px;
-}
-
-/* A deep band needs the inverted number, and the ramp is user-supplied, so the
-   flip is keyed on the band rather than on a measured contrast. */
-.mbv-cal-day[data-level="4"] .mbv-cal-number,
-.mbv-cal-day[data-level="5"] .mbv-cal-number,
-.mbv-cal-day[data-level="6"] .mbv-cal-number,
-.mbv-cal-day[data-level="7"] .mbv-cal-number,
-.mbv-cal-day[data-level="8"] .mbv-cal-number {
-  color: var(--text-on-accent);
 }
 
 .mbv-cal-number {
@@ -2824,6 +2810,27 @@
   color: var(--text-faint);
   font-size: var(--font-ui-smaller);
   line-height: 1;
+}
+
+/* Only a number ramp is worth a legend: it is the one encoding whose colors
+   mean an amount rather than a value you can read off the note. */
+.mbv-cal-legend {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--size-2-3);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.mbv-cal-legend.is-hidden {
+  display: none;
+}
+
+.mbv-cal-legend-bar {
+  width: 96px;
+  height: 6px;
+  border-radius: 3px;
 }
 
 .mbv-cal-detail {

@@ -17,10 +17,9 @@ import {
 	parseMonthKey,
 	shiftMonth,
 	type CalendarSample,
-	type MarkerStyle,
 	type ValueReading,
 } from './logic/calendarGrid';
-import type { Aggregation, WeekStart } from './logic/heatBuckets';
+import type { WeekStart } from './logic/heatBuckets';
 import { EntryInteractions, type EntryTarget } from './ui/EntryInteractions';
 import { extractTimestamp } from './logic/dateValue';
 import { isCssColor, parseCustomPalette, resolveColorPalette } from './table-colors/palettes';
@@ -112,30 +111,10 @@ export class CalendarView extends BasesView {
 						placeholder: 'What the markers describe',
 					},
 					{
-						// Auto reads the property: a number gets the ramp, anything
-						// countable gets dots.
-						displayName: 'Marker style',
-						type: 'dropdown',
-						key: 'markerStyle',
-						default: 'auto',
-						options: {
-							auto: 'Automatic',
-							dots: 'Dots',
-							fill: 'Heat fill',
-							none: 'None',
-						},
-					},
-					{
-						displayName: 'Combine numbers by',
-						type: 'dropdown',
-						key: 'aggregation',
-						default: 'sum',
-						options: {
-							sum: 'Sum',
-							average: 'Average',
-							max: 'Maximum',
-							min: 'Minimum',
-						},
+						displayName: 'Show day markers',
+						type: 'toggle',
+						key: 'showMarkers',
+						default: true,
 					},
 					{
 						displayName: 'Number colors, low to high',
@@ -210,11 +189,10 @@ export class CalendarView extends BasesView {
 			});
 		}
 
+		const rampColors = this.rampColors();
 		const built = buildMonth(year, month, bucketSamples(samples), weekStart, {
-			style: this.markerStyle(),
-			aggregation: this.aggregation(),
 			palette: this.valuePalette(),
-			rampColors: this.rampColors(),
+			rampColors,
 			maxMarkers: this.numberOption('maxMarkers', 4),
 		});
 
@@ -225,7 +203,9 @@ export class CalendarView extends BasesView {
 			yearLabel: String(year),
 			weekdayLabels: weekStart === 'monday' ? WEEKDAYS_MONDAY : WEEKDAYS_SUNDAY,
 			showWeekNumbers: this.config.get('showWeekNumbers') === true,
+			showMarkers: this.config.get('showMarkers') !== false,
 			showDetail: this.config.get('showDetail') !== false,
+			rampColors,
 			selectedKey: this.selectedKey,
 			notice: this.notice(samples.length),
 			cellSize: this.numberOption('cellSize', 56),
@@ -349,17 +329,7 @@ export class CalendarView extends BasesView {
 		this.renderer.update(this.buildModel());
 	}
 
-	private markerStyle(): MarkerStyle {
-		const value = this.config.get('markerStyle');
-		return value === 'dots' || value === 'fill' || value === 'none' ? value : 'auto';
-	}
-
-	private aggregation(): Aggregation {
-		const value = this.config.get('aggregation');
-		return value === 'average' || value === 'max' || value === 'min' ? value : 'sum';
-	}
-
-	/** Only valid CSS colors count, so a typo cannot silently blank a band. */
+	/** Only valid CSS colors count, so a typo cannot silently blank a stop. */
 	private rampColors(): string[] {
 		const configured = this.config.get('rampColors');
 		const values = Array.isArray(configured)

@@ -10,7 +10,10 @@ export interface CalendarModel {
 	yearLabel: string;
 	weekdayLabels: string[];
 	showWeekNumbers: boolean;
+	showMarkers: boolean;
 	showDetail: boolean;
+	/** Ramp stops low to high, for the number legend. */
+	rampColors: string[];
 	/** `YYYY-MM-DD` of the open day, or null when nothing is selected. */
 	selectedKey: string | null;
 	notice: string;
@@ -33,6 +36,7 @@ export class CalendarRenderer {
 	private readonly bodyEl: HTMLElement;
 	private readonly weekdaysEl: HTMLElement;
 	private readonly gridEl: HTMLElement;
+	private readonly legendEl: HTMLElement;
 	private readonly detailEl: HTMLElement;
 	private readonly scheduler = new RenderScheduler(() => this.flush());
 	private model: CalendarModel | null = null;
@@ -49,6 +53,7 @@ export class CalendarRenderer {
 		this.bodyEl = this.containerEl.createDiv({ cls: 'mbv-cal-body' });
 		this.weekdaysEl = this.bodyEl.createDiv({ cls: 'mbv-cal-weekdays' });
 		this.gridEl = this.bodyEl.createDiv({ cls: 'mbv-cal-grid' });
+		this.legendEl = this.containerEl.createDiv({ cls: 'mbv-cal-legend' });
 		this.detailEl = this.containerEl.createDiv({ cls: 'mbv-cal-detail' });
 
 		this.buildNav();
@@ -104,12 +109,14 @@ export class CalendarRenderer {
 		if (hidden) {
 			this.gridEl.empty();
 			this.weekdaysEl.empty();
+			this.legendEl.empty();
 			this.detailEl.empty();
 			return;
 		}
 
 		this.renderWeekdays(model);
 		const days = this.renderGrid(model);
+		this.renderLegend(model);
 		this.renderDetail(model);
 
 		reportPerformance('calendar render', startedAt, {
@@ -163,18 +170,9 @@ export class CalendarRenderer {
 			if (!model.showDetail) cellEl.dataset.path = day.entries[0].path;
 		}
 		cellEl.setAttr('aria-label', describeDay(day));
-
-		// A heat fill paints the whole cell, so the level rides on the cell and the
-		// day number inverts against it in CSS rather than in two code paths.
-		if (model.month.style === 'fill') {
-			cellEl.dataset.level = String(day.level);
-			const color = day.level > 0 ? model.month.levels[day.level - 1]?.color : null;
-			if (color) cellEl.style.setProperty('--mbv-cal-fill', color);
-		}
-
 		cellEl.createDiv({ cls: 'mbv-cal-number', text: String(day.dayOfMonth) });
 
-		if (model.month.style !== 'dots' || !day.markers.length) return;
+		if (!model.showMarkers || !day.markers.length) return;
 		const marksEl = cellEl.createDiv({ cls: 'mbv-cal-marks' });
 		for (const marker of day.markers) {
 			const dotEl = marksEl.createDiv({ cls: 'mbv-cal-dot' });
@@ -184,6 +182,24 @@ export class CalendarRenderer {
 		if (day.overflow) {
 			marksEl.createSpan({ cls: 'mbv-cal-more', text: `+${day.overflow}` });
 		}
+	}
+
+	/**
+	 * Only a number ramp gets a legend, because only a number has ends worth
+	 * naming. A categorical color is named by the note it belongs to, which the
+	 * detail panel already shows.
+	 */
+	private renderLegend(model: CalendarModel): void {
+		this.legendEl.empty();
+		const range = model.month.range;
+		const show = model.showMarkers && model.month.kind === 'number' && range !== null && model.rampColors.length > 1;
+		this.legendEl.toggleClass('is-hidden', !show);
+		if (!show || !range) return;
+
+		this.legendEl.createSpan({ cls: 'mbv-cal-legend-end', text: formatNumber(range.min) });
+		const barEl = this.legendEl.createDiv({ cls: 'mbv-cal-legend-bar' });
+		barEl.style.backgroundImage = `linear-gradient(to right, ${model.rampColors.join(', ')})`;
+		this.legendEl.createSpan({ cls: 'mbv-cal-legend-end', text: formatNumber(range.max) });
 	}
 
 	/**
@@ -254,6 +270,10 @@ function describeDay(day: CalendarDay): string {
 	const names = day.entries.slice(0, 5).map((entry) => entry.title);
 	if (day.entries.length > names.length) names.push(`and ${day.entries.length - names.length} more`);
 	return `${date}\n${names.join('\n')}`;
+}
+
+function formatNumber(value: number): string {
+	return (Math.round(value * 100) / 100).toLocaleString();
 }
 
 function formatLongDate(timestamp: number): string {
