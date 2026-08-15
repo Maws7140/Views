@@ -98,6 +98,8 @@ const MIN_PX_PER_DAY_FOR_WEEKENDS = 18;
 /** Keep the label readable when a bar is pinned to the viewport edge. */
 const MIN_PINNED_LABEL = 32;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+/** How close to the left edge counts as asking for more of the past. */
+const EDGE_EXTEND_PX = 8;
 
 export class TimelineRenderer {
   private rootEl: HTMLElement;
@@ -154,9 +156,44 @@ export class TimelineRenderer {
   private readonly scrollRenderScheduler = new RenderScheduler(() => this.render(false));
 
   private readonly handleScrollBound = () => {
-    this.scrollRenderScheduler.schedule();
+    if (!this.extendPastIfNeeded()) this.scrollRenderScheduler.schedule();
     this.callbacks.onViewportChanged?.(this.getViewportState());
   };
+
+  /**
+   * The canvas begins at `scale.startTs`, so scroll position zero is a wall: a
+   * date earlier than the origin cannot be reached by scrolling, whatever the
+   * zoom did. Reaching the left edge moves the origin further into the past and
+   * adds the same distance to the scroll position, so the content does not move
+   * on screen and there is suddenly somewhere to scroll back to.
+   *
+   * Bounded one viewport before the earliest item, so this cannot become an
+   * endless walk into empty time.
+   */
+  private extendPastIfNeeded(): boolean {
+    if (this.scrollAreaEl.scrollLeft > EDGE_EXTEND_PX) return false;
+    const sidebarWidth = this.rootEl.hasClass('tl-single-lane') ? 0 : SIDEBAR_WIDTH;
+    const viewportWidth = Math.max(100, (this.scrollAreaEl.clientWidth || 800) - sidebarWidth);
+    const viewportMs = (viewportWidth / this.scale.pxPerDay) * MS_PER_DAY;
+    const earliest = this.earliestTs();
+    if (earliest === null) return false;
+    const floorTs = earliest - viewportMs;
+    if (this.scale.startTs <= floorTs) return false;
+    const deltaTs = Math.min(this.scale.startTs - floorTs, viewportMs);
+    this.scale.startTs -= deltaTs;
+    this.pendingScrollLeft = this.scrollAreaEl.scrollLeft + (deltaTs / MS_PER_DAY) * this.scale.pxPerDay;
+    this.render(false);
+    return true;
+  }
+
+  private earliestTs(): number | null {
+    let earliest: number | null = null;
+    for (const item of this.currentData?.items ?? []) {
+      if (item.startTs == null) continue;
+      if (earliest === null || item.startTs < earliest) earliest = item.startTs;
+    }
+    return earliest;
+  }
 
   getViewportState(): TimelineViewportState {
     return {
