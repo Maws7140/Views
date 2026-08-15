@@ -1,3 +1,4 @@
+import { CalendarView, CalendarViewType } from '../CalendarView';
 import { CollectionView, CollectionViewType } from '../CollectionView';
 import { HeatmapView, HeatmapViewType } from '../HeatmapView';
 import { KanbanView, KanbanViewType } from '../KanbanView';
@@ -34,6 +35,14 @@ export const VIEW_DEFINITIONS: readonly ViewDefinition[] = [
 			icon: 'lucide-grid-3x-3',
 			factory: (controller, containerEl) => new HeatmapView(controller, containerEl),
 			options: HeatmapView.getViewOptions,
+		}),
+	},
+	{
+		register: (plugin) => plugin.registerBasesView(CalendarViewType, {
+			name: 'Views · Calendar',
+			icon: 'lucide-calendar-days',
+			factory: (controller, containerEl) => new CalendarView(plugin, controller, containerEl),
+			options: CalendarView.getViewOptions,
 		}),
 	},
 	{
