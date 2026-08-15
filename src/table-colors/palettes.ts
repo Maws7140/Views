@@ -4,48 +4,51 @@ export type ColorPackId = 'notion' | 'pastel' | 'vivid' | 'earth' | 'custom';
  * Categorical colors, for telling one value from another at a glance.
  *
  * Longer than the original eight, because eight means a view repeats on the
- * ninth value. But length is the second priority: every colour added here sits
- * at least ~20 in CIE76 distance from every other colour in its pack, which is
- * the distance at which two swatches read as different things rather than as
- * two shades of one thing.
+ * ninth value. Length is still the second priority: an addition has to pass
+ * two tests against every colour already in its pack, not one.
  *
- * An earlier attempt pushed these to 88 colours at a floor of 10 and it was a
- * mistake. Candidates came from design-system ramps, which carry several shades
- * of one hue for sequential use, and `vivid` ended up holding violet beside
- * purple at ΔE 10.5. A near duplicate is worse than a repeat: a repeat plainly
- * says "same colour", while a near duplicate leaves the reader unsure whether
- * two things are the same category. Hence the shorter, stricter packs.
+ * 1. **Distance.** At least ~20 in CIE76.
+ * 2. **Hue.** At least 25 degrees of hue separation, waived only past ΔE 45
+ *    where lightness alone makes the pair plainly different, and not applied to
+ *    near-greys, which have no hue worth comparing.
  *
- * Two original pairs sit below that floor already (`pastel` at 10.0 and `earth`
- * at 9.8). They are left as they were shipped rather than quietly redesigned.
+ * The second test is the one learned the hard way. An earlier pass used
+ * distance alone and let in lime-600 beside lime-700: zero degrees of hue
+ * apart, ΔE 20.3, because a lightness change on its own produces distance. It
+ * measured as fine and read as "that colour again, darker", which is worse than
+ * an outright repeat - a repeat says "same thing", a shade variant leaves the
+ * reader unsure whether two things are the same category.
  *
- * The packs are different lengths because their registers are: saturated hues
- * spread far apart, so `vivid` holds 19, while the muted browns and greens of
- * `earth` are full at 10.
+ * That constraint is why the packs grew modestly. Once the hue circle is
+ * occupied, the room left is in neutrals and at the extremes of lightness - a
+ * near-black, an off-white, a slate - which is where most of these additions
+ * come from. More hues were available only by shading existing ones, which is
+ * exactly what must not happen.
+ *
+ * A few original pairs fail these tests (`pastel` at ΔE 10.0, `earth` at 9.8,
+ * and some close hues elsewhere). They ship as they always have rather than
+ * being quietly redesigned.
  */
 export const COLOR_PACKS: Record<Exclude<ColorPackId, 'custom'>, string[]> = {
 	notion: [
 		'#787774', '#9f6b53', '#d9730d', '#cb912f',
 		'#448361', '#337ea9', '#9065b0', '#c14c8a',
-		'#d44c47', '#7f8a45', '#8a4f74', '#3d3d5c',
-		'#d8c9a3', '#5c3a2e', '#2f4f2f',
+		'#d44c47', '#1f1f1f', '#e8e2d5', '#7f8a45',
 	],
 	pastel: [
 		'#7aa2d6', '#84b59f', '#d6a86e', '#c58caf',
 		'#89a9a0', '#d98282', '#9a91c7', '#b5a36a',
-		'#cfa8a0', '#b8c4d9', '#e8dcc0', '#5f7f8f',
+		'#5f7f8f', '#b8c4d9', '#3f4a52', '#7a6f66',
 	],
 	vivid: [
 		'#2563eb', '#059669', '#d97706', '#dc2626',
 		'#7c3aed', '#0891b2', '#db2777', '#65a30d',
-		'#c026d3', '#0284c7', '#ea580c', '#16a34a',
-		'#475569', '#a16207', '#be123c', '#4d7c0f',
-		'#0f766e', '#facc15', '#831843',
+		'#475569', '#e2e8f0', '#701a75',
 	],
 	earth: [
 		'#8b6f47', '#6b7f5b', '#a66a4c', '#5f7c80',
 		'#8a6f8f', '#9b8b63', '#6f766d', '#b06f62',
-		'#3a3028', '#d9c7a8',
+		'#3a3028', '#eae3d6',
 	],
 };
 
