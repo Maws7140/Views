@@ -554,6 +554,9 @@ export class CollectionView extends BasesView {
 			'--mbv-gap': `${config.gap}px`,
 			'--mbv-card-height': `${config.cardHeight}px`,
 			'--mbv-media-share': `${config.mediaShare}%`,
+			// A definite height for the media, because a card that grows to fit its
+			// content has no definite height for a percentage to resolve against.
+			'--mbv-media-height': `${Math.round(config.cardHeight * config.mediaShare / 100)}px`,
 			'--mbv-card-radius': config.cardCorners === 'square' ? '0px' : 'var(--radius-l)',
 		});
 		this.containerEl.querySelectorAll<HTMLElement>('.mbv-card.has-media').forEach((card) => {
