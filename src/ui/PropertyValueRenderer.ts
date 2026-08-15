@@ -17,7 +17,7 @@ import {
 	Value,
 	setIcon,
 } from 'obsidian';
-import { stableColor } from '../table-colors/palettes';
+import { ColorAssigner, stableColor } from '../table-colors/palettes';
 
 const dateFormatters = new Map<string, Intl.DateTimeFormat>();
 
@@ -26,6 +26,11 @@ export interface PropertyValueRenderContext {
 	property: BasesPropertyId;
 	displayName?: string;
 	valueColorPalette?: string[];
+	/**
+	 * Set by a view that wants two values never to share a color. Without it,
+	 * each value is hashed on its own and a collision is possible.
+	 */
+	valueColors?: ColorAssigner;
 	onBooleanChange?: (checked: boolean) => Promise<void>;
 }
 
@@ -48,7 +53,7 @@ export function renderPropertyValue(
 	// A scalar takes its pill on an inner span, not on the container. See
 	// `renderValueChip`.
 	if (!(value instanceof TagValue) && !isScalarValue(value)) {
-		applyPropertyValuePill(container, value, context.valueColorPalette);
+		applyPropertyValuePill(container, value, context.valueColorPalette, context.valueColors, context.property);
 	}
 	if (value instanceof DateValue) {
 		renderDate(container, value, context.property);
@@ -106,7 +111,7 @@ function isScalarValue(value: Value): boolean {
  */
 function renderValueChip(container: HTMLElement, value: Value, context: PropertyValueRenderContext): void {
 	const chipEl = container.createSpan({ cls: 'views-value-chip', text: value.toString() });
-	applyPropertyValuePill(chipEl, value, context.valueColorPalette);
+	applyPropertyValuePill(chipEl, value, context.valueColorPalette, context.valueColors, context.property);
 }
 
 function renderList(container: HTMLElement, value: ListValue, context: PropertyValueRenderContext): void {
@@ -125,7 +130,7 @@ function renderPill(
 ): void {
 	const itemEl = container.createSpan({ cls: 'views-property-item' });
 	if (tag || value instanceof TagValue) itemEl.addClass('is-tag');
-	applyPropertyValuePill(itemEl, value, context.valueColorPalette);
+	applyPropertyValuePill(itemEl, value, context.valueColorPalette, context.valueColors, context.property);
 	if (isRichValue(value)) {
 		value.renderTo(itemEl, context.app.renderContext);
 	} else {
@@ -141,8 +146,10 @@ export function applyPropertyValuePill(
 	element: HTMLElement,
 	value: unknown,
 	palette: string[] | undefined,
+	assigner?: ColorAssigner,
+	scope?: string,
 ): boolean {
-	if (!applyPropertyValueColor(element, value, palette)) return false;
+	if (!applyPropertyValueColor(element, value, palette, assigner, scope)) return false;
 	element.addClass('views-property-pill');
 	return true;
 }
@@ -152,19 +159,33 @@ export function applyPropertyValueColor(
 	element: HTMLElement,
 	value: unknown,
 	palette: string[] | undefined,
+	assigner?: ColorAssigner,
+	scope?: string,
 ): boolean {
-	const color = resolvePropertyValueColor(value, palette);
+	const color = resolvePropertyValueColor(value, palette, assigner, scope);
 	if (!color) return false;
 	element.addClass('has-value-color');
 	element.style.setProperty('--views-property-color', color);
 	return true;
 }
 
-/** The single value-to-color decision used by every property surface. */
-export function resolvePropertyValueColor(value: unknown, palette: string[] | undefined): string | null {
-	if (!palette?.length) return null;
+/**
+ * The single value-to-color decision used by every property surface.
+ *
+ * With an assigner, no two values in the same scope share a color. Without one,
+ * each value is hashed on its own, which is the old behaviour and can collide.
+ */
+export function resolvePropertyValueColor(
+	value: unknown,
+	palette: string[] | undefined,
+	assigner?: ColorAssigner,
+	scope?: string,
+): string | null {
 	const seed = propertyValueColorSeed(value);
-	return seed ? stableColor(seed, palette) : null;
+	if (!seed) return null;
+	if (assigner) return assigner.color(scope ?? '', seed);
+	if (!palette?.length) return null;
+	return stableColor(seed, palette);
 }
 
 /** Preserve the underlying value identity instead of hashing formatted UI text. */

@@ -3,7 +3,7 @@ import { isPropertyColorEnabled, normalizeColorPropertyId, type ViewsPluginSetti
 import { RenderScheduler } from '../performance/RenderScheduler';
 import { reportPerformance } from '../performance/metrics';
 import { applyPropertyValuePill, propertyValueColorSeed } from '../ui/PropertyValueRenderer';
-import { resolveColorPalette } from './palettes';
+import { ColorAssigner, resolveColorPalette } from './palettes';
 
 const BASE_ROOT = '.bases-view, .bases-embed';
 // Cards carry the property id on their wrapper the same way table rows do.
@@ -28,6 +28,8 @@ export class TableColorEnhancer extends Component {
 	private readonly pendingNoteProperties = new Set<HTMLElement>();
 	private readonly pendingListItems = new Set<HTMLElement>();
 	private readonly scheduler = new RenderScheduler(() => this.flushPending());
+	private colors: ColorAssigner | null = null;
+	private colorsKey = '';
 	private readonly decoratedState = new WeakMap<HTMLElement, string>();
 	private basePathCache = new WeakMap<HTMLElement, string | null>();
 	private readonly toggleButtons = new Map<HTMLElement, HTMLButtonElement>();
@@ -461,7 +463,7 @@ export class TableColorEnhancer extends Component {
 		// its native presentation instead of gaining an empty chip.
 		// One pill function for the whole plugin. `applyPropertyValuePill` is what
 		// tags, list items, Collection chips, and timeline chips already use.
-		const colored = applyPropertyValuePill(pill, value, palette);
+		const colored = applyPropertyValuePill(pill, value, palette, this.assigner(palette), propertyId);
 		if (colored) pill.addClass('views-colored-pill');
 		this.decoratedState.set(pill, state);
 		return colored || wasColored;
@@ -473,7 +475,7 @@ export class TableColorEnhancer extends Component {
 		if (this.decoratedState.get(valueEl) === state) return false;
 		const wasColored = valueEl.hasClass('has-value-color');
 		this.clearElement(valueEl);
-		const colored = applyPropertyValuePill(valueEl, value, palette);
+		const colored = applyPropertyValuePill(valueEl, value, palette, this.assigner(palette), propertyId);
 		if (colored) valueEl.addClass('views-colored-pill');
 		this.decoratedState.set(valueEl, state);
 		return colored || wasColored;
@@ -633,6 +635,21 @@ export class TableColorEnhancer extends Component {
 			if (propertyId) return propertyId;
 		}
 		return '';
+	}
+
+	/**
+	 * Kept across passes rather than rebuilt per pass. A table decorates cells
+	 * incrementally as they scroll into view, so a fresh assigner each time
+	 * could give a value one color now and another later, in the same table.
+	 * Rebuilt only when the palette itself changes.
+	 */
+	private assigner(palette: string[]): ColorAssigner {
+		const key = palette.join(',');
+		if (!this.colors || this.colorsKey !== key) {
+			this.colors = new ColorAssigner(palette);
+			this.colorsKey = key;
+		}
+		return this.colors;
 	}
 
 	private palette(settings: ViewsPluginSettings): string[] {

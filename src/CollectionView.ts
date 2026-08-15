@@ -24,7 +24,7 @@ import {
 	resolveCardColor,
 	resolveCardIcons,
 } from './collection/appearance';
-import { ColorPackId, resolveColorPalette } from './table-colors/palettes';
+import { ColorAssigner, ColorPackId, resolveColorPalette } from './table-colors/palettes';
 import { isPropertyColorEnabled } from './settings/settings';
 import { renderPropertyValue } from './ui/PropertyValueRenderer';
 import { isInteractiveTarget, showFileMenu } from './ui/EntryInteractions';
@@ -83,6 +83,13 @@ interface CollectionRenderContext {
 	detailProperties: DetailProperty[];
 	cardPalette: string[];
 	valuePalette: string[] | undefined;
+	/**
+	 * Built with the context, so distinctness spans one render pass. Cards and
+	 * property values are separate scopes inside it: a card colour and a pill
+	 * colour matching is not a collision, two pills matching is.
+	 */
+	cardColors: ColorAssigner;
+	valueColors: ColorAssigner | undefined;
 	notebookNavigator: NotebookNavigatorApi | null;
 	iconCandidates: Map<string, string[]>;
 	mediaResources: Map<string, string | null>;
@@ -596,13 +603,17 @@ export class CollectionView extends BasesView {
 		const detailProperties = this.config.getOrder()
 			.filter((property) => !excluded.has(property))
 			.map((property) => ({ property, displayName: this.config.getDisplayName(property) }));
+		const cardPalette = resolveColorPalette(config.colorPack, config.customColors, false);
+		const valuePalette = config.propertyValueColors && this.plugin.settings.tableColorsEnabled
+			? resolveColorPalette(this.plugin.settings.colorPack, this.plugin.settings.customPalette)
+			: undefined;
 		return {
 			config,
 			detailProperties,
-			cardPalette: resolveColorPalette(config.colorPack, config.customColors, false),
-			valuePalette: config.propertyValueColors && this.plugin.settings.tableColorsEnabled
-				? resolveColorPalette(this.plugin.settings.colorPack, this.plugin.settings.customPalette)
-				: undefined,
+			cardPalette,
+			valuePalette,
+			cardColors: new ColorAssigner(cardPalette),
+			valueColors: valuePalette ? new ColorAssigner(valuePalette) : undefined,
 			notebookNavigator: config.folderIconSource === 'notebook-navigator'
 				? getNotebookNavigatorApi(this.app)
 				: null,
@@ -796,7 +807,7 @@ export class CollectionView extends BasesView {
 		this.retainedCards.set(cardEl, { entry, context });
 		this.retentionObserver?.observe(cardEl);
 		this.scheduleRetentionPrune();
-		const color = resolveCardColor(entry, config, title, this.app, context.cardPalette);
+		const color = resolveCardColor(entry, config, title, this.app, context.cardPalette, context.cardColors);
 		if (color) {
 			cardEl.addClass('has-card-color');
 			cardEl.setCssProps({ '--mbv-card-color': color });
@@ -1065,6 +1076,7 @@ export class CollectionView extends BasesView {
 				property,
 				displayName,
 				valueColorPalette: propertyColorsEnabled ? context.valuePalette : undefined,
+				valueColors: propertyColorsEnabled ? context.valueColors : undefined,
 				onBooleanChange: property.startsWith('note.')
 					? (checked) => this.updateBooleanProperty(entry, property, checked)
 					: undefined,

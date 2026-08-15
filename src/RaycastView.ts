@@ -14,7 +14,7 @@ import {
 	type RaycastRow,
 } from './raycast/RaycastRenderer';
 import { isPropertyColorEnabled } from './settings/settings';
-import { parseCustomPalette, resolveColorPalette } from './table-colors/palettes';
+import { ColorAssigner, parseCustomPalette, resolveColorPalette } from './table-colors/palettes';
 import { renderPropertyValue } from './ui/PropertyValueRenderer';
 import { showFileMenu } from './ui/EntryInteractions';
 import type ViewsPlugin from './main';
@@ -38,6 +38,8 @@ export class RaycastView extends BasesView {
 	private readonly containerEl: HTMLElement;
 	private readonly renderer: RaycastRenderer;
 	private readonly entriesByPath = new Map<string, BasesEntry>();
+	/** Rebuilt per render, so two values of a property never share a color. */
+	private colors: ColorAssigner | null = null;
 
 	constructor(
 		private readonly plugin: ViewsPlugin,
@@ -125,6 +127,8 @@ export class RaycastView extends BasesView {
 	}
 
 	onDataUpdated(): void {
+		const palette = this.valuePalette();
+		this.colors = palette ? new ColorAssigner(palette) : null;
 		this.renderer.update(this.buildModel());
 	}
 
@@ -211,6 +215,9 @@ export class RaycastView extends BasesView {
 				displayName: this.config.getDisplayName(property),
 				valueColorPalette: palette && isPropertyColorEnabled(this.plugin.settings, property)
 					? palette
+					: undefined,
+				valueColors: isPropertyColorEnabled(this.plugin.settings, property)
+					? this.colors ?? undefined
 					: undefined,
 			});
 		}

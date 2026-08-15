@@ -9,7 +9,7 @@ import {
 	getIcon,
 	setIcon,
 } from 'obsidian';
-import { ColorPackId, isCssColor, normalizeColor, resolveColorPalette, stableColor } from '../table-colors/palettes';
+import { ColorAssigner, ColorPackId, isCssColor, normalizeColor, resolveColorPalette, stableColor } from '../table-colors/palettes';
 
 export type CollectionColorMode = 'none' | 'property' | 'automatic' | 'property-auto';
 export type AutomaticColorSource = 'title' | 'folder' | 'property';
@@ -280,6 +280,7 @@ export function resolveCardColor(
 	title: string,
 	app?: App,
 	automaticPalette?: string[],
+	assigner?: ColorAssigner,
 ): string | null {
 	if (config.colorMode === 'none') return null;
 	if (config.colorMode === 'property' || config.colorMode === 'property-auto') {
@@ -294,10 +295,11 @@ export function resolveCardColor(
 		if (config.colorMode === 'property') return null;
 	}
 
-	return stableColor(
-		automaticColorSeed(entry, config, title),
-		automaticPalette ?? automaticColorPalette(config),
-	);
+	// An explicit colour on the note always wins above; only the automatic seed
+	// reaches here, and that is the one that can collide.
+	const seed = automaticColorSeed(entry, config, title);
+	if (assigner) return assigner.color('card', seed);
+	return stableColor(seed, automaticPalette ?? automaticColorPalette(config));
 }
 
 export function automaticColorPalette(config: CollectionAppearanceConfig): string[] {

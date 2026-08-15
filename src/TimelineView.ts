@@ -20,7 +20,7 @@ import {
 import { EntryInteractions, type EntryTarget } from './ui/EntryInteractions';
 import { extractTimestamp } from './logic/dateValue';
 import { isPropertyColorEnabled } from './settings/settings';
-import { parseCustomPalette, resolveColorPalette } from './table-colors/palettes';
+import { ColorAssigner, parseCustomPalette, resolveColorPalette } from './table-colors/palettes';
 import { resolvePropertyValueColor } from './ui/PropertyValueRenderer';
 import type { TimelineConfig, TimelineItem, TimelineItemProperty, TimelineViewportState } from './types';
 import type BasesTimelinePlugin from './main';
@@ -42,6 +42,8 @@ export class TimelineView extends BasesView {
 	private startProp: BasesPropertyId | null = null;
 	private endProp: BasesPropertyId | null = null;
 	private colorProp: BasesPropertyId | null = null;
+	/** Rebuilt per render, so two bar colors in one view never coincide. */
+	private barColors: ColorAssigner | null = null;
 	private appearanceCache: CollectionAppearanceConfig | null = null;
 	private restoredViewport = false;
 	private pendingViewport: TimelineViewportState | null = null;
@@ -161,6 +163,9 @@ export class TimelineView extends BasesView {
 	}
 
 	onDataUpdated(): void {
+		// A fresh assigner per render: distinctness is only meaningful across one
+		// pass, and a kept one would freeze colors and grow without bound.
+		this.barColors = new ColorAssigner(this.valuePalette());
 		const config = this.loadConfig();
 		const rendererData = this.buildRendererData(config);
 		this.renderer.updateData(rendererData, config);
@@ -527,14 +532,14 @@ export class TimelineView extends BasesView {
 		const appearance = this.appearance();
 		if (appearance.colorMode !== 'none') {
 			const title = entry.file.basename;
-			return resolveCardColor(entry, appearance, title, this.app, automaticColorPalette(appearance));
+			return resolveCardColor(entry, appearance, title, this.app, automaticColorPalette(appearance), this.barColors ?? undefined);
 		}
 		// Legacy behaviour for views configured before the shared options: an
 		// explicit Color by property, else the native group key.
 		if (!this.plugin.settings.tableColorsEnabled) return null;
 		const seed = this.colorProp ? entry.getValue(this.colorProp) : groupKey;
 		if (seed === null || seed === undefined) return null;
-		return resolvePropertyValueColor(seed, this.valuePalette());
+		return resolvePropertyValueColor(seed, this.valuePalette(), this.barColors ?? undefined, 'bar');
 	}
 
 	/** View pack when chosen, otherwise the pack from the Colors settings. */

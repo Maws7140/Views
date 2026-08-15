@@ -32,7 +32,7 @@ import { applyManualOrder, NO_LANE_KEY, partitionGroupsIntoLanes } from './logic
 import { EntryInteractions, type EntryTarget } from './ui/EntryInteractions';
 import { TaskNotesBridge, type TaskNotesChoice } from './integrations/TaskNotesBridge';
 import { isPropertyColorEnabled } from './settings/settings';
-import { parseCustomPalette } from './table-colors/palettes';
+import { ColorAssigner, parseCustomPalette } from './table-colors/palettes';
 import { resolvePropertyValueColor } from './ui/PropertyValueRenderer';
 import type ViewsPlugin from './main';
 
@@ -77,6 +77,8 @@ export class KanbanView extends BasesView {
 	 * rather than once, so enabling TaskNotes does not need a board reload.
 	 */
 	private taskNotes: TaskNotesBridge | null = null;
+	/** Rebuilt per render, which is the scope distinctness is meaningful in. */
+	private colors: ColorAssigner | null = null;
 
 	constructor(
 		private readonly plugin: ViewsPlugin,
@@ -247,6 +249,7 @@ export class KanbanView extends BasesView {
 
 	private buildModel(): KanbanModel {
 		this.entriesById.clear();
+		this.colors = new ColorAssigner(this.headerPalette());
 		this.cardLocations.clear();
 		// Entries are recreated on every result set, so cached cards go with them.
 		this.cardCache.clear();
@@ -302,7 +305,7 @@ export class KanbanView extends BasesView {
 			key: lane.key,
 			label: lane.label,
 			color: this.laneProp && lane.key !== NO_LANE_KEY && this.plugin.settings.tableColorsEnabled
-				? resolvePropertyValueColor(lane.key, palette) ?? undefined
+				? resolvePropertyValueColor(lane.key, palette, this.colors ?? undefined, 'lane') ?? undefined
 				: undefined,
 			count: columns.reduce((total, column) => total + (column.cards.get(lane.key)?.length ?? 0), 0),
 		}));
@@ -404,6 +407,9 @@ export class KanbanView extends BasesView {
 				displayName: this.config.getDisplayName(property),
 				value,
 				palette: isPropertyColorEnabled(this.plugin.settings, property) ? palette : undefined,
+				colors: isPropertyColorEnabled(this.plugin.settings, property)
+					? this.colors ?? undefined
+					: undefined,
 			});
 		}
 		const appearance = this.appearance();
@@ -416,7 +422,7 @@ export class KanbanView extends BasesView {
 			properties,
 			// The same colour vocabulary as a Collection card: frontmatter,
 			// automatic, or off, with the view's own palette.
-			color: resolveCardColor(entry, appearance, title, this.app, automaticColorPalette(appearance)) ?? undefined,
+			color: resolveCardColor(entry, appearance, title, this.app, automaticColorPalette(appearance), this.colors ?? undefined) ?? undefined,
 			cover: this.coverFor(entry),
 		};
 	}
@@ -632,7 +638,7 @@ export class KanbanView extends BasesView {
 			key,
 			label: choice?.label ?? key,
 			color: choice?.color ?? (this.plugin.settings.tableColorsEnabled
-				? resolvePropertyValueColor(key, palette) ?? undefined
+				? resolvePropertyValueColor(key, palette, this.colors ?? undefined, 'column') ?? undefined
 				: undefined),
 			icon: this.columnIcon(key),
 			count,

@@ -169,39 +169,82 @@ function alphaComponent(value: unknown): string | number | null {
  * assignment. Repeats are the thing being fixed, so that is the right trade.
  */
 export function assignDistinctColors(values: readonly string[], palette: string[]): Map<string, string> {
+	const assigner = new ColorAssigner(palette);
 	const assigned = new Map<string, string>();
-	if (!palette.length) return assigned;
-
-	const taken = new Set<string>();
 	for (const value of values) {
-		const seed = value.trim();
-		if (!seed || assigned.has(seed)) continue;
-
-		const preferred = stableColor(seed, palette);
-		if (!preferred) continue;
-
-		// Past the palette's size a repeat is unavoidable, and the honest answer
-		// is the value's own color rather than an arbitrary survivor.
-		if (taken.size >= palette.length) {
-			assigned.set(seed, preferred);
-			continue;
-		}
-
-		let color = preferred;
-		if (taken.has(color)) {
-			const start = palette.indexOf(preferred);
-			for (let step = 1; step < palette.length; step += 1) {
-				const candidate = palette[(start + step) % palette.length];
-				if (taken.has(candidate)) continue;
-				color = candidate;
-				break;
-			}
-		}
-		assigned.set(seed, color);
-		taken.add(color);
+		const color = assigner.color('', value);
+		if (color) assigned.set(value.trim(), color);
 	}
-
 	return assigned;
+}
+
+/**
+ * The same rule, for the surfaces that meet their values one at a time instead
+ * of knowing the whole set up front.
+ *
+ * A pill renders as its cell is reached, so there is no point at which the view
+ * could hand over a complete list. Assignment is therefore lazy: the first
+ * value to ask gets its preferred color, and a later clash moves. One instance
+ * lives for one render pass, which is what makes "already taken" meaningful.
+ *
+ * Distinctness is scoped, normally to a property. Two different properties are
+ * two different legends, so `status: done` and `priority: high` sharing a color
+ * costs nothing and leaves more colors free inside each.
+ */
+export class ColorAssigner {
+	private readonly scopes = new Map<string, { assigned: Map<string, string>; taken: Set<string> }>();
+
+	constructor(private readonly palette: string[]) {}
+
+	color(scope: string, value: unknown): string | null {
+		if (!this.palette.length) return null;
+		const seed = propertyValueSeed(value);
+		if (!seed) return null;
+
+		let state = this.scopes.get(scope);
+		if (!state) {
+			state = { assigned: new Map(), taken: new Set() };
+			this.scopes.set(scope, state);
+		}
+
+		const existing = state.assigned.get(seed);
+		if (existing) return existing;
+
+		const preferred = stableColor(seed, this.palette);
+		if (!preferred) return null;
+
+		const color = pickFreeColor(preferred, state.taken, this.palette);
+		state.assigned.set(seed, color);
+		state.taken.add(color);
+		return color;
+	}
+}
+
+/**
+ * The preferred color when it is free, otherwise the next free one scanning
+ * from it, so the choice still derives from the value rather than from the
+ * order it happened to arrive in. Past the palette's size a repeat is
+ * unavoidable and the honest answer is the value's own color.
+ */
+function pickFreeColor(preferred: string, taken: Set<string>, palette: string[]): string {
+	if (!taken.has(preferred)) return preferred;
+	if (taken.size >= palette.length) return preferred;
+
+	const start = palette.indexOf(preferred);
+	for (let step = 1; step < palette.length; step += 1) {
+		const candidate = palette[(start + step) % palette.length];
+		if (!taken.has(candidate)) return candidate;
+	}
+	return preferred;
+}
+
+/** Trimmed text for a value of any shape, which is what a color keys on. */
+function propertyValueSeed(value: unknown): string {
+	if (value === null || value === undefined) return '';
+	if (typeof value === 'string') return value.trim();
+	if (typeof value === 'boolean') return value ? 'true' : 'false';
+	if (typeof value === 'number') return Number.isFinite(value) ? String(value) : '';
+	return String(value).trim();
 }
 
 export function stableColor(value: string, palette: string[]): string | null {
