@@ -2425,21 +2425,32 @@
    reason as before: a name reads truncated, a date does not. */
 .mbv-ray-results {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) repeat(var(--mbv-ray-columns, 0), minmax(0, max-content));
+  grid-template-columns: minmax(var(--mbv-ray-title-min), 1fr) repeat(var(--mbv-ray-columns, 0), max-content);
   align-content: start;
   column-gap: var(--size-4-4);
   flex: 1;
   min-width: 0;
   min-height: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
+  /* Enough properties and the columns stop fitting. Rather than compress them
+     all into illegibility, the list scrolls sideways: the property columns are
+     `max-content` so they keep their size, and the title track has a floor, so
+     past that point the grid is simply wider than the pane. Not the expected
+     way to use this view, but it should not fall apart if someone does. */
+  overflow: auto;
   padding: var(--size-4-2);
+}
+
+.mbv-ray {
+  --mbv-ray-title-min: 14rem;
 }
 
 .mbv-ray-row {
   display: grid;
   grid-column: 1 / -1;
   grid-template-columns: subgrid;
+  /* Hover and selection cover the row across the whole scrollable width rather
+     than stopping at the edge of the pane. */
+  min-width: max-content;
   align-items: center;
   padding: var(--size-2-3) var(--size-4-2);
   border-radius: var(--radius-m);
@@ -2502,9 +2513,11 @@
 }
 
 /* A value too wide for its column trails off rather than widening the column
-   for every other row. */
+   for every other row. The cap is what stops one enormous value from defining
+   a column, now that the columns no longer shrink. */
 .mbv-ray-prop {
   min-width: 0;
+  max-width: 40ch;
   overflow: hidden;
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
