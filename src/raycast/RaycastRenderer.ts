@@ -19,6 +19,8 @@ export interface RaycastModel {
 	/** Nothing but the search field until something is typed. */
 	launcher: boolean;
 	showProperties: boolean;
+	/** One grid column per property, so every row's values line up. */
+	propertyCount: number;
 	density: 'comfortable' | 'compact';
 	placeholder: string;
 	/** Why the result list is empty when the base itself returned nothing. */
@@ -39,6 +41,7 @@ const EMPTY_MODEL: RaycastModel = {
 	showGroupHeadings: false,
 	launcher: false,
 	showProperties: true,
+	propertyCount: 0,
 	density: 'comfortable',
 	placeholder: 'Search',
 	emptyNotice: '',
@@ -96,6 +99,10 @@ export class RaycastRenderer {
 	update(model: RaycastModel): void {
 		this.model = model;
 		this.inputEl.placeholder = model.placeholder;
+		// The column count drives the grid, and every row is a subgrid of it, so a
+		// property occupies the same column in every row rather than sitting
+		// wherever its own row's text happened to end.
+		this.resultsEl.style.setProperty('--mbv-ray-columns', String(model.showProperties ? model.propertyCount : 0));
 		this.rootEl.toggleClass('is-compact', model.density === 'compact');
 		this.renderResults();
 	}
@@ -240,9 +247,9 @@ export class RaycastRenderer {
 		const mainEl = rowEl.createDiv({ cls: 'mbv-ray-row-main' });
 		mainEl.createSpan({ cls: 'mbv-ray-title', text: row.title });
 		if (row.subtitle) mainEl.createSpan({ cls: 'mbv-ray-subtitle', text: row.subtitle });
-		if (this.model.showProperties) {
-			this.callbacks.renderProperties(rowEl.createDiv({ cls: 'mbv-ray-row-props' }), row.path);
-		}
+		// The cells go straight into the row: a wrapper around them would be one
+		// grid item and the columns inside it would be its own, not the list's.
+		if (this.model.showProperties) this.callbacks.renderProperties(rowEl, row.path);
 		this.rowEls.set(row.path, rowEl);
 	}
 

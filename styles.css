@@ -2401,15 +2401,6 @@
   box-shadow: none;
 }
 
-.mbv-ray-results {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  padding: var(--size-4-2);
-}
-
 .mbv-ray-group {
   padding: var(--size-4-2) var(--size-4-2) var(--size-2-2);
   color: var(--text-muted);
@@ -2419,34 +2410,46 @@
   letter-spacing: 0.06em;
 }
 
-/* The row is a grid, and which track is flexible is the whole of this bug.
+/* Columns, shared by every row.
+ 
+   The list itself is the grid: one track for the title and one per property.
+   Each row is a `subgrid` of it, so a property lands in the same column in
+   every row instead of wherever its own row's text happened to end. That is the
+   difference between right-aligning each row separately, which is what this was
+   doing and what looked ragged, and a table.
+ 
+   `minmax(0, max-content)` on a property track sizes it to the widest value in
+   that column and lets it shrink when the row runs out of room, so a column of
+   two-letter values stays two letters wide and a column of dates is as wide as
+   a date. The title track is the flexible one and gives way first, for the same
+   reason as before: a name reads truncated, a date does not. */
+.mbv-ray-results {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) repeat(var(--mbv-ray-columns, 0), minmax(0, max-content));
+  align-content: start;
+  column-gap: var(--size-4-4);
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: var(--size-4-2);
+}
 
-   As a flex line the two halves negotiated: the title grew into the free space
-   and the properties took what was left, so a row with three properties clipped
-   the last one. Moving to a grid did not fix it on its own, because an `auto`
-   track loses to an `fr` track: with `minmax(0, 1fr)` on the title the browser
-   handed the title 966px for 88px of text and left the properties 220px for
-   323px of content.
-
-   Worse, the properties box could not be sized from its contents at all. Its
-   max-content resolved to 220px whatever it actually held, verified by forcing
-   `width: max-content` inline and watching the used width refuse to move. So
-   the layout must not depend on measuring it.
-
-   Hence: the title track is `auto` and the properties track is the flexible
-   one. The properties box is handed the remaining width, a definite length that
-   needs no measuring, and right-aligns its contents inside it. The title takes
-   its own content size and, losing to `fr`, gives way first. A long name
-   therefore shortens the title and cannot clip a date, which is the rule this
-   view needed. */
 .mbv-ray-row {
   display: grid;
-  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
   align-items: center;
-  column-gap: var(--size-4-3);
   padding: var(--size-2-3) var(--size-4-2);
   border-radius: var(--radius-m);
   cursor: var(--cursor);
+}
+
+/* A heading and a notice are not rows of the table and span the whole width. */
+.mbv-ray-group,
+.mbv-ray-notice {
+  grid-column: 1 / -1;
 }
 
 .mbv-ray.is-compact .mbv-ray-row {
@@ -2498,23 +2501,10 @@
   font-size: var(--font-ui-smaller);
 }
 
-.mbv-ray-row-props {
-  display: flex;
-  align-items: center;
-  gap: var(--size-4-2);
-  justify-content: flex-end;
-  min-width: 0;
-  overflow: hidden;
-}
-
-/* Property values are short and stop meaning anything the moment they lose
-   characters, so none of them shrink; the grid above is what guarantees they do
-   not have to. The cap is only a guard against one enormous value taking the
-   whole row. */
+/* A value too wide for its column trails off rather than widening the column
+   for every other row. */
 .mbv-ray-prop {
-  flex: 0 0 auto;
   min-width: 0;
-  max-width: 40ch;
   overflow: hidden;
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
@@ -2531,29 +2521,24 @@
   text-overflow: ellipsis;
 }
 
-/* A property holding several values stacks, one value per line, and the row
-   grows to fit. Wrapping was not the same thing: it put three tags on one line
-   and the fourth underneath, so the count of lines depended on the width and no
-   two rows agreed. A column is the same shape whatever the width.
-
-   The three classes matter: `.views-property-value.is-list` declares
-   `overflow: visible` and would otherwise out-specify `.mbv-ray-prop` and let a
-   list escape the row entirely. */
+/* A property holding several values stacks, one per line, and the row grows to
+   fit. Wrapping was not the same thing: it put three tags on a line and the
+   fourth underneath, so the line count followed the width and no two rows
+   agreed. A column is the same shape at any width.
+ 
+   Three classes because `.views-property-value.is-list` declares
+   `overflow: visible` and would otherwise out-specify `.mbv-ray-prop`. */
 .mbv-ray-prop.views-property-value.is-list {
   flex-direction: column;
-  align-items: flex-end;
+  align-items: flex-start;
   flex-wrap: nowrap;
   overflow: hidden;
 }
 
-/* A stacked property sets the row's height, so the row's parts align to the top
-   rather than floating in the middle of it. */
+/* A stacked property sets the row's height, so the parts align to the top of it
+   rather than floating in the middle. */
 .mbv-ray-row:has(.mbv-ray-prop.is-list) {
   align-items: start;
-}
-
-.mbv-ray-row:has(.mbv-ray-prop.is-list) .mbv-ray-row-main {
-  padding-block-start: 1px;
 }
 
 .mbv-ray-prop .views-property-item,

@@ -148,6 +148,7 @@ export class RaycastView extends BasesView {
 			showGroupHeadings: groups.length > 1 || Boolean(groups[0]?.key),
 			launcher: this.config.get('launcher') === true,
 			showProperties: this.config.get('showProperties') !== false,
+			propertyCount: properties.length,
 			density: this.stringConfig('density', 'comfortable') === 'compact' ? 'compact' : 'comfortable',
 			placeholder: 'Search',
 			emptyNotice: 'This base returned no notes.',
@@ -191,16 +192,19 @@ export class RaycastView extends BasesView {
 		return this.config.getOrder().filter((property) => property !== titleProp);
 	}
 
-	private renderProperties(containerEl: HTMLElement, path: string): void {
+	/**
+	 * One cell per property, always, and in the same order. A row that skipped a
+	 * value it does not have would shift every later value into the wrong column.
+	 */
+	private renderProperties(rowEl: HTMLElement, path: string): void {
 		const entry = this.entriesByPath.get(path);
 		if (!entry) return;
 		const palette = this.valuePalette();
 		for (const property of this.displayProperties()) {
+			const valueEl = rowEl.createDiv({ cls: 'mbv-ray-prop' });
 			const value = entry.getValue(property);
 			if (value === null || value === undefined) continue;
-			const text = value.toString().trim();
-			if (!text) continue;
-			const valueEl = containerEl.createDiv({ cls: 'mbv-ray-prop' });
+			if (!value.toString().trim()) continue;
 			renderPropertyValue(valueEl, value, {
 				app: this.app,
 				property,
