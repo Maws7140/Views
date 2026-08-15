@@ -1,10 +1,49 @@
 export type ColorPackId = 'notion' | 'pastel' | 'vivid' | 'earth' | 'custom';
 
+/**
+ * Categorical colors. Sized so a view can hold a realistic number of distinct
+ * values before it has to repeat one: eight was not enough for a status column,
+ * let alone a tag list.
+ *
+ * Every pair inside a pack is at least ~10 in CIE76 distance, checked rather
+ * than eyeballed. The packs are different lengths on purpose, because a muted
+ * register genuinely has less room to stay distinguishable in than a saturated
+ * one, and padding `earth` out to match `vivid` would only add near duplicates.
+ */
 export const COLOR_PACKS: Record<Exclude<ColorPackId, 'custom'>, string[]> = {
-	notion: ['#787774', '#9f6b53', '#d9730d', '#cb912f', '#448361', '#337ea9', '#9065b0', '#c14c8a', '#d44c47'],
-	pastel: ['#7aa2d6', '#84b59f', '#d6a86e', '#c58caf', '#89a9a0', '#d98282', '#9a91c7', '#b5a36a'],
-	vivid: ['#2563eb', '#059669', '#d97706', '#dc2626', '#7c3aed', '#0891b2', '#db2777', '#65a30d'],
-	earth: ['#8b6f47', '#6b7f5b', '#a66a4c', '#5f7c80', '#8a6f8f', '#9b8b63', '#6f766d', '#b06f62'],
+	notion: [
+		'#787774', '#9f6b53', '#d9730d', '#cb912f',
+		'#448361', '#337ea9', '#9065b0', '#c14c8a',
+		'#d44c47', '#3f8f87', '#5a63a6', '#7f8a45',
+		'#5d7385', '#8a4f74', '#b0603c', '#6b4f8a',
+		'#a88b3f', '#4a6f5c', '#8f5f5f', '#3f5f8a',
+		'#7a8f6b', '#5f8f3f', '#8f7a5f', '#3d3d5c',
+		'#c9a227',
+	],
+	pastel: [
+		'#7aa2d6', '#84b59f', '#d6a86e', '#c58caf',
+		'#89a9a0', '#d98282', '#9a91c7', '#b5a36a',
+		'#c3b2e0', '#8ec7c0', '#e2b3c4', '#bcc98d',
+		'#e3c49b', '#a9b8dd', '#6f8fae', '#a67f8c',
+		'#8fa87f', '#cfa8a0', '#c98f7a', '#a8b8c9',
+	],
+	// Tailwind's 600 ramp, which is what the original eight already were.
+	vivid: [
+		'#2563eb', '#059669', '#d97706', '#dc2626',
+		'#7c3aed', '#0891b2', '#db2777', '#65a30d',
+		'#0d9488', '#4f46e5', '#c026d3', '#e11d48',
+		'#0284c7', '#ea580c', '#16a34a', '#475569',
+		'#a16207', '#be123c', '#7e22ce', '#047857',
+		'#b91c1c', '#0e7490', '#4d7c0f', '#9f1239',
+		'#3f6212', '#0f766e',
+	],
+	earth: [
+		'#8b6f47', '#6b7f5b', '#a66a4c', '#5f7c80',
+		'#8a6f8f', '#9b8b63', '#6f766d', '#b06f62',
+		'#7b6a55', '#7f8d99', '#6b5f7a', '#94756a',
+		'#8c9b7a', '#4f5f6b', '#9b7a8a', '#8b5f4f',
+		'#4f6b5f',
+	],
 };
 
 export function parseCustomPalette(value: string): string[] {
