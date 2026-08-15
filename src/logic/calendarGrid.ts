@@ -1,5 +1,5 @@
 import { addDays, daysBetween, localDayKey, startOfLocalDay } from './dateValue';
-import { stableColor } from '../table-colors/palettes';
+import { assignDistinctColors } from '../table-colors/palettes';
 import type { WeekStart } from './heatBuckets';
 
 /**
@@ -226,6 +226,14 @@ export function buildMonth(
 	// the ramp to what is on screen rather than to an outlier in another year.
 	const range = kind === 'number' ? numberRange(visible) : null;
 
+	// Colors are decided once for the whole month rather than per value, which
+	// is the only way to know a color is already spoken for. `visible` is in
+	// day order and then the view's own sort, so the assignment is stable for
+	// the same data rather than depending on which cell renders first.
+	const colors = kind === 'number' || !options.palette
+		? new Map<string, string>()
+		: assignDistinctColors(seedsOf(visible, kind), options.palette);
+
 	const weeks: CalendarWeek[] = [];
 	for (let ts = from; ts <= to; ts = addDays(ts, 7)) {
 		const days: CalendarDay[] = [];
@@ -234,7 +242,7 @@ export function buildMonth(
 			const key = localDayKey(dayTs);
 			const date = new Date(dayTs);
 			const bucket = buckets.get(key) ?? [];
-			const built = buildMarkers(bucket, kind, range, options);
+			const built = buildMarkers(bucket, kind, range, colors, options);
 			days.push({
 				key,
 				ts: dayTs,
@@ -257,10 +265,27 @@ export function buildMonth(
  * marker per note. The cap is on markers rather than notes, so a busy day
  * reports `+n` instead of growing the row until the cell stops being square.
  */
+/**
+ * Every value that needs a color, in the order it is first seen. A boolean has
+ * exactly two, so listing them explicitly keeps true and false apart even in a
+ * month where only one of them occurs.
+ */
+function seedsOf(samples: CalendarSample[], kind: MarkerKind): string[] {
+	if (kind === 'boolean') return ['true', 'false'];
+	const seeds: string[] = [];
+	for (const sample of samples) {
+		for (const reading of sample.readings) {
+			if (reading.seed) seeds.push(reading.seed);
+		}
+	}
+	return seeds;
+}
+
 function buildMarkers(
 	samples: CalendarSample[],
 	kind: MarkerKind,
 	range: { min: number; max: number } | null,
+	colors: Map<string, string>,
 	options: MarkerOptions,
 ): { markers: DayMarker[]; overflow: number } {
 	const markers: DayMarker[] = [];
@@ -271,7 +296,7 @@ function buildMarkers(
 			continue;
 		}
 		for (const reading of sample.readings) {
-			markers.push(markerFor(reading, kind, range, options));
+			markers.push(markerFor(reading, kind, range, colors, options));
 		}
 	}
 
@@ -285,16 +310,15 @@ function markerFor(
 	reading: ValueReading,
 	kind: MarkerKind,
 	range: { min: number; max: number } | null,
+	colors: Map<string, string>,
 	options: MarkerOptions,
 ): DayMarker {
-	const palette = options.palette;
 	if (kind === 'boolean') {
-		// The two colors come from the same palette every other view uses, so
-		// true and false read as the same pair they do in a table. Hollow carries
-		// the false half on its own where colors are turned off.
+		// Two colors that are guaranteed to differ, plus hollow carrying the
+		// false half on its own where colors are turned off entirely.
 		const on = reading.boolean === true;
 		return {
-			color: palette ? stableColor(on ? 'true' : 'false', palette) : null,
+			color: colors.get(on ? 'true' : 'false') ?? null,
 			filled: on,
 			label: reading.label,
 		};
@@ -309,7 +333,7 @@ function markerFor(
 		};
 	}
 	return {
-		color: palette ? stableColor(reading.seed, palette) : null,
+		color: colors.get(reading.seed) ?? null,
 		filled: true,
 		label: reading.label,
 	};
