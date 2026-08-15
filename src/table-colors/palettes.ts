@@ -1,48 +1,51 @@
 export type ColorPackId = 'notion' | 'pastel' | 'vivid' | 'earth' | 'custom';
 
 /**
- * Categorical colors. Sized so a view can hold a realistic number of distinct
- * values before it has to repeat one: eight was not enough for a status column,
- * let alone a tag list.
+ * Categorical colors, for telling one value from another at a glance.
  *
- * Every pair inside a pack is at least ~10 in CIE76 distance, checked rather
- * than eyeballed. The packs are different lengths on purpose, because a muted
- * register genuinely has less room to stay distinguishable in than a saturated
- * one, and padding `earth` out to match `vivid` would only add near duplicates.
+ * Longer than the original eight, because eight means a view repeats on the
+ * ninth value. But length is the second priority: every colour added here sits
+ * at least ~20 in CIE76 distance from every other colour in its pack, which is
+ * the distance at which two swatches read as different things rather than as
+ * two shades of one thing.
+ *
+ * An earlier attempt pushed these to 88 colours at a floor of 10 and it was a
+ * mistake. Candidates came from design-system ramps, which carry several shades
+ * of one hue for sequential use, and `vivid` ended up holding violet beside
+ * purple at ΔE 10.5. A near duplicate is worse than a repeat: a repeat plainly
+ * says "same colour", while a near duplicate leaves the reader unsure whether
+ * two things are the same category. Hence the shorter, stricter packs.
+ *
+ * Two original pairs sit below that floor already (`pastel` at 10.0 and `earth`
+ * at 9.8). They are left as they were shipped rather than quietly redesigned.
+ *
+ * The packs are different lengths because their registers are: saturated hues
+ * spread far apart, so `vivid` holds 19, while the muted browns and greens of
+ * `earth` are full at 10.
  */
 export const COLOR_PACKS: Record<Exclude<ColorPackId, 'custom'>, string[]> = {
 	notion: [
 		'#787774', '#9f6b53', '#d9730d', '#cb912f',
 		'#448361', '#337ea9', '#9065b0', '#c14c8a',
-		'#d44c47', '#3f8f87', '#5a63a6', '#7f8a45',
-		'#5d7385', '#8a4f74', '#b0603c', '#6b4f8a',
-		'#a88b3f', '#4a6f5c', '#8f5f5f', '#3f5f8a',
-		'#7a8f6b', '#5f8f3f', '#8f7a5f', '#3d3d5c',
-		'#c9a227',
+		'#d44c47', '#7f8a45', '#8a4f74', '#3d3d5c',
+		'#d8c9a3', '#5c3a2e', '#2f4f2f',
 	],
 	pastel: [
 		'#7aa2d6', '#84b59f', '#d6a86e', '#c58caf',
 		'#89a9a0', '#d98282', '#9a91c7', '#b5a36a',
-		'#c3b2e0', '#8ec7c0', '#e2b3c4', '#bcc98d',
-		'#e3c49b', '#a9b8dd', '#6f8fae', '#a67f8c',
-		'#8fa87f', '#cfa8a0', '#c98f7a', '#a8b8c9',
+		'#cfa8a0', '#b8c4d9', '#e8dcc0', '#5f7f8f',
 	],
-	// Tailwind's 600 ramp, which is what the original eight already were.
 	vivid: [
 		'#2563eb', '#059669', '#d97706', '#dc2626',
 		'#7c3aed', '#0891b2', '#db2777', '#65a30d',
-		'#0d9488', '#4f46e5', '#c026d3', '#e11d48',
-		'#0284c7', '#ea580c', '#16a34a', '#475569',
-		'#a16207', '#be123c', '#7e22ce', '#047857',
-		'#b91c1c', '#0e7490', '#4d7c0f', '#9f1239',
-		'#3f6212', '#0f766e',
+		'#c026d3', '#0284c7', '#ea580c', '#16a34a',
+		'#475569', '#a16207', '#be123c', '#4d7c0f',
+		'#0f766e', '#facc15', '#831843',
 	],
 	earth: [
 		'#8b6f47', '#6b7f5b', '#a66a4c', '#5f7c80',
 		'#8a6f8f', '#9b8b63', '#6f766d', '#b06f62',
-		'#7b6a55', '#7f8d99', '#6b5f7a', '#94756a',
-		'#8c9b7a', '#4f5f6b', '#9b7a8a', '#8b5f4f',
-		'#4f6b5f',
+		'#3a3028', '#d9c7a8',
 	],
 };
 
