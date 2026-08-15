@@ -30,6 +30,7 @@ import {
 } from './collection/appearance';
 import { applyManualOrder, NO_LANE_KEY, partitionGroupsIntoLanes } from './logic/lanes';
 import { EntryInteractions, type EntryTarget } from './ui/EntryInteractions';
+import { TaskNotesBridge, type TaskNotesChoice } from './integrations/TaskNotesBridge';
 import { isPropertyColorEnabled } from './settings/settings';
 import { parseCustomPalette } from './table-colors/palettes';
 import { resolvePropertyValueColor } from './ui/PropertyValueRenderer';
@@ -71,6 +72,11 @@ export class KanbanView extends BasesView {
 	private unsubscribeColors: (() => void) | null = null;
 	/** Column keys stay visible after their last card leaves. */
 	private knownColumns: string[] = [];
+	/**
+	 * Null unless TaskNotes is installed and usable. Resolved per data update
+	 * rather than once, so enabling TaskNotes does not need a board reload.
+	 */
+	private taskNotes: TaskNotesBridge | null = null;
 
 	constructor(
 		private readonly plugin: ViewsPlugin,
@@ -230,6 +236,7 @@ export class KanbanView extends BasesView {
 	onDataUpdated(): void {
 		this.appearanceCache = null;
 		this.columnIcons.clear();
+		this.taskNotes = TaskNotesBridge.resolve(this.app);
 		this.laneProp = this.config.getAsPropertyId('swimlaneProperty');
 		this.orderProp = this.config.getAsPropertyId('orderProperty');
 		this.mediaProp = this.config.getAsPropertyId('mediaProperty');
@@ -248,6 +255,7 @@ export class KanbanView extends BasesView {
 		const laneName = this.laneProp ? this.config.getDisplayName(this.laneProp) : 'lane';
 		const partition = partitionGroupsIntoLanes(groups, this.laneProp, laneName, (group) => this.columnKey(group));
 
+		const choices = this.columnChoices();
 		const columnsByKey = new Map<string, KanbanColumn>();
 		for (const group of groups) {
 			const key = this.columnKey(group);
@@ -265,37 +273,26 @@ export class KanbanView extends BasesView {
 				cards.set(lane.key, ids);
 				count += ids.length;
 			}
-			columnsByKey.set(key, {
-				key,
-				label: key,
-				color: this.plugin.settings.tableColorsEnabled
-					? resolvePropertyValueColor(key, palette) ?? undefined
-					: undefined,
-				icon: this.columnIcon(key),
-				count,
-				cards,
-			});
+			columnsByKey.set(key, this.buildColumn(key, cards, count, palette, choices));
 		}
 
 		// A column whose last card was dragged away would otherwise vanish under
 		// the cursor, so previously seen columns are kept as empty destinations.
-		for (const key of this.knownColumns) {
+		// A configured status the board has never seen joins them, so a TaskNotes
+		// board opens with every column it can drop onto rather than only the
+		// ones that happen to hold a note.
+		const empties = [...this.knownColumns, ...(choices?.map((choice) => choice.value) ?? [])];
+		for (const key of empties) {
 			if (columnsByKey.has(key)) continue;
 			const cards = new Map<string, string[]>();
 			for (const lane of partition.lanes) cards.set(lane.key, []);
-			columnsByKey.set(key, {
-				key,
-				label: key,
-				color: this.plugin.settings.tableColorsEnabled
-					? resolvePropertyValueColor(key, palette) ?? undefined
-					: undefined,
-				icon: this.columnIcon(key),
-				count: 0,
-				cards,
-			});
+			columnsByKey.set(key, this.buildColumn(key, cards, 0, palette, choices));
 		}
 
-		let columns = applyManualOrder([...columnsByKey.values()], this.storedColumnOrder());
+		let columns = applyManualOrder(
+			this.applyChoiceOrder([...columnsByKey.values()], choices),
+			this.storedColumnOrder(),
+		);
 		this.knownColumns = columns.map((column) => column.key);
 		if (this.config.get('hideEmptyColumns') === true) {
 			columns = columns.filter((column) => column.count > 0);
@@ -617,6 +614,57 @@ export class KanbanView extends BasesView {
 		}
 	}
 
+	/**
+	 * One column. A TaskNotes status or priority brings its own label and color,
+	 * which beats hashing the raw value into the palette: the board then shows
+	 * the same words and the same colors the user configured in TaskNotes,
+	 * rather than a second opinion about what "in-progress" should look like.
+	 */
+	private buildColumn(
+		key: string,
+		cards: Map<string, string[]>,
+		count: number,
+		palette: string[],
+		choices: TaskNotesChoice[] | null,
+	): KanbanColumn {
+		const choice = choices?.find((candidate) => candidate.value === key) ?? null;
+		return {
+			key,
+			label: choice?.label ?? key,
+			color: choice?.color ?? (this.plugin.settings.tableColorsEnabled
+				? resolvePropertyValueColor(key, palette) ?? undefined
+				: undefined),
+			icon: this.columnIcon(key),
+			count,
+			cards,
+		};
+	}
+
+	/**
+	 * The values the Group by property can take, when TaskNotes owns it and can
+	 * enumerate them. Null for a plain property, which keeps every board that is
+	 * not a TaskNotes status board on exactly its old behaviour.
+	 */
+	private columnChoices(): TaskNotesChoice[] | null {
+		const property = this.groupProperty.property;
+		if (!this.taskNotes || !property?.startsWith('note.')) return null;
+		const field = this.taskNotes.fieldForKey(property.slice('note.'.length));
+		return field ? this.taskNotes.choices(field) : null;
+	}
+
+	/**
+	 * TaskNotes' own order, as a starting point only. A manual column order the
+	 * user dragged is applied after this and still wins, so the integration sets
+	 * a better default without overriding a decision.
+	 */
+	private applyChoiceOrder(columns: KanbanColumn[], choices: TaskNotesChoice[] | null): KanbanColumn[] {
+		if (!choices?.length) return columns;
+		const rank = new Map(choices.map((choice, index) => [choice.value, index]));
+		// Anything TaskNotes does not know keeps its relative position after the
+		// values it does, rather than being sorted to an arbitrary place.
+		return [...columns].sort((a, b) => (rank.get(a.key) ?? Infinity) - (rank.get(b.key) ?? Infinity));
+	}
+
 	private findCard(cardId: string): { columnKey: string; laneKey: string } | null {
 		return this.cardLocations.get(cardId) ?? null;
 	}
@@ -660,9 +708,20 @@ export class KanbanView extends BasesView {
 		return match ? frontmatter[match] : null;
 	}
 
+	/**
+	 * A frontmatter write, unless TaskNotes owns the note and the field is one
+	 * of its own. Writing `status` straight into a TaskNotes task would skip the
+	 * completion stamp, the recurrence and scheduling side effects, and the
+	 * events its automations listen to, so that write goes through its API and
+	 * only falls back here when it cannot.
+	 */
 	private async writeProperty(file: TFile, property: string, value: unknown): Promise<void> {
 		if (!property.startsWith('note.')) throw new Error(`${property} is not writable`);
 		const key = property.slice('note.'.length);
+
+		const field = this.taskNotes?.fieldForKey(key);
+		if (field && await this.taskNotes?.setField(file.path, field, value)) return;
+
 		await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
 			const existing = Object.keys(frontmatter)
 				.find((candidate) => candidate.toLocaleLowerCase() === key.toLocaleLowerCase());
