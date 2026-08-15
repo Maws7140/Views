@@ -1706,6 +1706,30 @@
   display: none;
 }
 
+/* Inside a card, text wraps instead of being cut off with an ellipsis.
+   `white-space: nowrap` suits a table row, which is one line tall by design, but
+   a card is a block with room to grow, so a long title or value should run onto
+   the next line rather than disappear. The narrow-container rules below already
+   reached for this; it is the rule at every width now.
+
+   Scoped to `.mbv-card` on purpose: the same `views-property-*` classes render
+   in the Table enhancer and in Raycast rows, where a single line is correct. */
+.mbv-card .mbv-card-title,
+.mbv-card .mbv-card-detail-label,
+.mbv-card .views-property-value-text,
+.mbv-card .views-property-value.is-text,
+.mbv-card .views-property-value.is-number,
+.mbv-card .views-property-item,
+.mbv-card .views-property-pill,
+.mbv-card .views-value-chip {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  /* A long unbroken string, a URL or an id, breaks rather than forcing the card
+     wider than its column. */
+  overflow-wrap: anywhere;
+}
+
 .mbv-collection.is-square.is-horizontal .mbv-card {
   min-block-size: 0;
   max-block-size: none;
