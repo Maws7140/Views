@@ -100,6 +100,8 @@ const MIN_PINNED_LABEL = 32;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 /** How close to the left edge counts as asking for more of the past. */
 const EDGE_EXTEND_PX = 8;
+/** Air before the earliest item, so the first bar is not flush against the edge. */
+const LEADING_PAD_DAYS = 1;
 
 export class TimelineRenderer {
   private rootEl: HTMLElement;
@@ -167,8 +169,10 @@ export class TimelineRenderer {
    * adds the same distance to the scroll position, so the content does not move
    * on screen and there is suddenly somewhere to scroll back to.
    *
-   * Bounded one viewport before the earliest item, so this cannot become an
-   * endless walk into empty time.
+   * The floor is the earliest item plus a little air, the same leading pad
+   * `fitTo` uses. Past that there is nothing to look at, so the edge stops
+   * there rather than expanding into empty time for as long as the user keeps
+   * scrolling.
    */
   private extendPastIfNeeded(): boolean {
     if (this.scrollAreaEl.scrollLeft > EDGE_EXTEND_PX) return false;
@@ -177,7 +181,7 @@ export class TimelineRenderer {
     const viewportMs = (viewportWidth / this.scale.pxPerDay) * MS_PER_DAY;
     const earliest = this.earliestTs();
     if (earliest === null) return false;
-    const floorTs = earliest - viewportMs;
+    const floorTs = earliest - LEADING_PAD_DAYS * MS_PER_DAY;
     if (this.scale.startTs <= floorTs) return false;
     const deltaTs = Math.min(this.scale.startTs - floorTs, viewportMs);
     this.scale.startTs -= deltaTs;
