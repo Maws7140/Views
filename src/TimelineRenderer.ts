@@ -482,10 +482,14 @@ export class TimelineRenderer {
     // dead-ends past the last bar. Quantised to whole viewports: recomputing an
     // exact width every frame changed the canvas size on every frame, which
     // relaid out the grid, every lane track, and both scrollbars each time.
+    // A queued scroll counts as the scroll position here: the canvas has to be
+    // wide enough to hold it before it is applied, or the assignment is clamped
+    // to the old range and the view lands somewhere it was not asked to.
+    const scrollAnchor = Math.max(this.scrollAreaEl.scrollLeft, this.pendingScrollLeft ?? 0);
     const neededWidth = Math.max(
       this.calculateTimelineWidth(this.currentData.items, viewportWidth),
       viewportWidth,
-      this.scrollAreaEl.scrollLeft + viewportWidth * 2,
+      scrollAnchor + viewportWidth * 2,
     );
     if (neededWidth > this.timelineWidth || neededWidth < this.timelineWidth * 0.5) {
       this.timelineWidth = Math.ceil(neededWidth / viewportWidth) * viewportWidth;
@@ -1101,10 +1105,25 @@ export class TimelineRenderer {
       const viewportWidth = Math.max(100, containerWidth - sidebarWidth);
       const pivot = pivotPx ?? (this.scrollAreaEl.scrollLeft + viewportWidth / 2); 
       
+      const scrollLeft = this.scrollAreaEl.scrollLeft;
+      // Where the pivot sits inside the viewport, which is what has to stay put.
+      const pivotOffset = pivot - scrollLeft;
       const focusTs = this.scale.fromX(pivot);
       this.scale.setPxPerDay(this.scale.pxPerDay * factor);
 
-      this.scale.startTs = focusTs - (pivot / this.scale.pxPerDay) * MS_PER_DAY;
+      // Zoom moves the scroll position, not the canvas origin. Moving the origin
+      // was what cut off scrolling left: `startTs` is where the canvas begins, so
+      // every zoom that pushed it later made those earlier dates unreachable, with
+      // nothing to the left of scroll position zero to scroll back to.
+      let targetScroll = this.scale.toX(focusTs) - pivotOffset;
+      if (targetScroll < 0) {
+          // The pivot would sit before the canvas begins, so the canvas is
+          // extended backwards instead. The origin only ever moves earlier here,
+          // never later, which is what keeps the past reachable.
+          this.scale.startTs -= (-targetScroll / this.scale.pxPerDay) * MS_PER_DAY;
+          targetScroll = 0;
+      }
+      this.pendingScrollLeft = targetScroll;
       this.render(false);
   }
 

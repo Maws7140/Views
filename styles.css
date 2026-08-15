@@ -2531,18 +2531,18 @@
   text-overflow: ellipsis;
 }
 
-/* A property holding several values stacks rather than truncating, and the row
-   grows to fit it. Forcing one line was a workaround for the properties box
-   being 220px wide: four tags had nowhere to go across, so they went down and
-   the row became four lines tall. With the box taking the row's real width they
-   lay out across it and wrap only when they actually run out of room.
+/* A property holding several values stacks, one value per line, and the row
+   grows to fit. Wrapping was not the same thing: it put three tags on one line
+   and the fourth underneath, so the count of lines depended on the width and no
+   two rows agreed. A column is the same shape whatever the width.
 
    The three classes matter: `.views-property-value.is-list` declares
    `overflow: visible` and would otherwise out-specify `.mbv-ray-prop` and let a
    list escape the row entirely. */
 .mbv-ray-prop.views-property-value.is-list {
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  flex-direction: column;
+  align-items: flex-end;
+  flex-wrap: nowrap;
   overflow: hidden;
 }
 
