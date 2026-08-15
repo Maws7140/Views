@@ -158,34 +158,6 @@ function alphaComponent(value: unknown): string | number | null {
 }
 
 /**
- * Colors for a known set of values, where no two values share a color while the
- * palette still has one free.
- *
- * `stableColor` decides each value on its own, so nothing ever asks what has
- * already been handed out and two values that hash to the same slot both get
- * it. Four statuses in an eight-color pack really did come out with `open` and
- * `done` both green.
- *
- * Each value still asks for its hashed color first, so a value keeps the color
- * it has elsewhere whenever that color is free, and only a genuine clash moves.
- * A displaced value takes the next free slot, scanning from its own preference
- * so the choice stays derived from the value rather than from its position.
- *
- * Distinctness has a price worth knowing: a value's color depends on which
- * other values are present, so a set that gains a colliding value can shift an
- * assignment. Repeats are the thing being fixed, so that is the right trade.
- */
-export function assignDistinctColors(values: readonly string[], palette: string[]): Map<string, string> {
-	const assigner = new ColorAssigner(palette);
-	const assigned = new Map<string, string>();
-	for (const value of values) {
-		const color = assigner.color('', value);
-		if (color) assigned.set(value.trim(), color);
-	}
-	return assigned;
-}
-
-/**
  * Hands out colors so that no two values shown together look alike.
  *
  * A pill renders as its cell is reached, so no view can hand over its complete

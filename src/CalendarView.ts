@@ -44,8 +44,12 @@ export class CalendarView extends BasesView {
 	private colorProp: BasesPropertyId | null = null;
 	/** View-local, so selecting a day does not write to the base file. */
 	private selectedKey: string | null = null;
-	/** Rebuilt per data update, so colors are distinct across one render. */
-	private detailColors: ColorAssigner | null = null;
+	/**
+	 * One assigner for the whole view, rebuilt per data update. The grid and the
+	 * detail panel share it, so a value is the same colour as a dot and as a pill
+	 * rather than each surface deciding for itself.
+	 */
+	private colors: ColorAssigner | null = null;
 	private detachInteractions: (() => void) | null = null;
 
 	constructor(
@@ -168,9 +172,10 @@ export class CalendarView extends BasesView {
 	}
 
 	onDataUpdated(): void {
-		this.detailColors = null;
 		this.dateProp = this.config.getAsPropertyId('dateProperty');
 		this.colorProp = this.config.getAsPropertyId('colorProperty');
+		const palette = this.valuePalette();
+		this.colors = palette ? new ColorAssigner(palette) : null;
 		this.renderer.update(this.buildModel());
 	}
 
@@ -194,7 +199,10 @@ export class CalendarView extends BasesView {
 
 		const rampColors = this.rampColors();
 		const built = buildMonth(year, month, bucketSamples(samples), weekStart, {
-			palette: this.valuePalette(),
+			colors: this.colors,
+			// The dots and this property's pills answer to one scope, which is what
+			// keeps them the same colour.
+			scope: this.colorProp ?? '',
 			rampColors,
 			maxMarkers: this.numberOption('maxMarkers', 4),
 		});
@@ -286,9 +294,6 @@ export class CalendarView extends BasesView {
 		const entry = this.entriesByPath.get(path);
 		if (!entry) return;
 		const palette = this.valuePalette();
-		// One assigner for the panel, so two values of the same property never
-		// come out the same color the way two independent hashes could.
-		const assigner = this.detailColors ??= palette ? new ColorAssigner(palette) : null;
 		for (const property of this.config.getOrder()) {
 			const value = entry.getValue(property);
 			if (value === null || value === undefined) continue;
@@ -302,7 +307,7 @@ export class CalendarView extends BasesView {
 					? palette
 					: undefined,
 				valueColors: isPropertyColorEnabled(this.plugin.settings, property)
-					? assigner ?? undefined
+					? this.colors ?? undefined
 					: undefined,
 			});
 		}

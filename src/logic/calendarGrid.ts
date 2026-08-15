@@ -1,5 +1,5 @@
 import { addDays, daysBetween, localDayKey, startOfLocalDay } from './dateValue';
-import { assignDistinctColors } from '../table-colors/palettes';
+import type { ColorAssigner } from '../table-colors/palettes';
 import type { WeekStart } from './heatBuckets';
 
 /**
@@ -68,7 +68,13 @@ export interface CalendarMonth {
 }
 
 export interface MarkerOptions {
-	palette: string[] | undefined;
+	/**
+	 * The view's one assigner, shared with everything else it renders, so a value
+	 * is the same colour as a dot here and as a pill in the detail panel.
+	 */
+	colors: ColorAssigner | null;
+	/** The colour property, so dots and that property's pills share a scope. */
+	scope: string;
 	/** Ramp stops, low to high. Values land between them, not on them. */
 	rampColors: string[];
 	maxMarkers: number;
@@ -226,13 +232,12 @@ export function buildMonth(
 	// the ramp to what is on screen rather than to an outlier in another year.
 	const range = kind === 'number' ? numberRange(visible) : null;
 
-	// Colors are decided once for the whole month rather than per value, which
-	// is the only way to know a color is already spoken for. `visible` is in
-	// day order and then the view's own sort, so the assignment is stable for
-	// the same data rather than depending on which cell renders first.
-	const colors = kind === 'number' || !options.palette
-		? new Map<string, string>()
-		: assignDistinctColors(seedsOf(visible, kind), options.palette);
+	// Claimed up front, in day order and then the view's own sort, so the grid
+	// gets first pick and the assignment is stable for the same data rather than
+	// depending on which cell happens to render first.
+	if (kind !== 'number' && options.colors) {
+		for (const seed of seedsOf(visible, kind)) options.colors.color(options.scope, seed);
+	}
 
 	const weeks: CalendarWeek[] = [];
 	for (let ts = from; ts <= to; ts = addDays(ts, 7)) {
@@ -242,7 +247,7 @@ export function buildMonth(
 			const key = localDayKey(dayTs);
 			const date = new Date(dayTs);
 			const bucket = buckets.get(key) ?? [];
-			const built = buildMarkers(bucket, kind, range, colors, options);
+			const built = buildMarkers(bucket, kind, range, options);
 			days.push({
 				key,
 				ts: dayTs,
@@ -285,7 +290,6 @@ function buildMarkers(
 	samples: CalendarSample[],
 	kind: MarkerKind,
 	range: { min: number; max: number } | null,
-	colors: Map<string, string>,
 	options: MarkerOptions,
 ): { markers: DayMarker[]; overflow: number } {
 	const markers: DayMarker[] = [];
@@ -296,7 +300,7 @@ function buildMarkers(
 			continue;
 		}
 		for (const reading of sample.readings) {
-			markers.push(markerFor(reading, kind, range, colors, options));
+			markers.push(markerFor(reading, kind, range, options));
 		}
 	}
 
@@ -310,7 +314,6 @@ function markerFor(
 	reading: ValueReading,
 	kind: MarkerKind,
 	range: { min: number; max: number } | null,
-	colors: Map<string, string>,
 	options: MarkerOptions,
 ): DayMarker {
 	if (kind === 'boolean') {
@@ -318,7 +321,7 @@ function markerFor(
 		// false half on its own where colors are turned off entirely.
 		const on = reading.boolean === true;
 		return {
-			color: colors.get(on ? 'true' : 'false') ?? null,
+			color: options.colors?.color(options.scope, on ? 'true' : 'false') ?? null,
 			filled: on,
 			label: reading.label,
 		};
@@ -333,7 +336,7 @@ function markerFor(
 		};
 	}
 	return {
-		color: colors.get(reading.seed) ?? null,
+		color: options.colors?.color(options.scope, reading.seed) ?? null,
 		filled: true,
 		label: reading.label,
 	};
