@@ -1,6 +1,6 @@
 import { App, parseYaml, PluginSettingTab, Setting } from 'obsidian';
 import type ViewsPlugin from '../main';
-import { normalizeColorPropertyId } from './settings';
+import { clearPropertyValueColorOverride, isPropertyColorEnabled, normalizeColorPropertyId } from './settings';
 
 type SettingsSection = 'general' | 'colors';
 
@@ -187,6 +187,47 @@ export class TimelinePluginSettingTab extends PluginSettingTab {
 			}
 			if (changed) this.renderPropertyToggles(listEl, propertyIds);
 		});
+
+		this.renderValueColorOverrides(container);
+	}
+
+	/**
+	 * Only overrides are listed here, never every value a property could hold:
+	 * the vault is the source of that, and this tab has no query over it.
+	 * Right-click a colored pill anywhere in a Base to set one.
+	 */
+	private renderValueColorOverrides(container: HTMLElement): void {
+		const overrides = this.plugin.settings.propertyValueColorOverrides;
+		const entries = Object.entries(overrides)
+			.filter(([property]) => isPropertyColorEnabled(this.plugin.settings, property))
+			.flatMap(([property, byValue]) => Object.entries(byValue).map(([seed, hex]) => ({ property, seed, hex })))
+			.sort((a, b) => a.property.localeCompare(b.property) || a.seed.localeCompare(b.seed));
+
+		container.createEl('h3', { text: 'Value color overrides' });
+		container.createEl('p', {
+			text: 'Right-click a colored pill in any Base or Collection to set one. Only values with an explicit color are listed here.',
+		});
+		if (!entries.length) {
+			container.createDiv({ cls: 'setting-item-description', text: 'No overrides set.' });
+			return;
+		}
+		for (const { property, seed, hex } of entries) {
+			new Setting(container)
+				.setName(seed)
+				.setDesc(this.propertyLabel(property))
+				.addExtraButton((button) => {
+					button.extraSettingsEl.addClass('views-value-color-swatch');
+					button.extraSettingsEl.style.setProperty('--views-swatch-color', hex);
+					button.setTooltip(hex);
+				})
+				.addButton((button) => button
+					.setButtonText('Reset')
+					.onClick(async () => {
+						clearPropertyValueColorOverride(this.plugin.settings, property, seed);
+						await this.plugin.saveSettings();
+						this.display();
+					}));
+		}
 	}
 
 	private renderPropertyToggles(container: HTMLElement, propertyIds: Set<string>): void {

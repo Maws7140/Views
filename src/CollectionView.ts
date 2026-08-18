@@ -26,7 +26,7 @@ import {
 	resolveCardIcons,
 } from './collection/appearance';
 import { ColorAssigner, ColorPackId, resolveColorPalette } from './table-colors/palettes';
-import { isPropertyColorEnabled } from './settings/settings';
+import { isPropertyColorEnabled, overrideColorsForProperty } from './settings/settings';
 import { renderPropertyValue } from './ui/PropertyValueRenderer';
 import { isInteractiveTarget, showFileMenu } from './ui/EntryInteractions';
 import { writeBooleanProperty } from './ui/writeBooleanProperty';
@@ -625,13 +625,24 @@ export class CollectionView extends BasesView {
 		const valuePalette = config.propertyValueColors && this.plugin.settings.tableColorsEnabled
 			? resolveColorPalette(this.plugin.settings.colorPack, this.plugin.settings.customPalette)
 			: undefined;
+		const valueColors = valuePalette ? new ColorAssigner(valuePalette) : undefined;
+		// Reserved before anything else resolves, so the automatic picker never
+		// lands a different value on a color the user already chose for it.
+		if (valueColors) {
+			for (const { property } of detailProperties) {
+				if (!isPropertyColorEnabled(this.plugin.settings, property)) continue;
+				for (const hex of overrideColorsForProperty(this.plugin.settings.propertyValueColorOverrides, property)) {
+					valueColors.reserve(property, hex);
+				}
+			}
+		}
 		return {
 			config,
 			detailProperties,
 			cardPalette,
 			valuePalette,
 			cardColors: new ColorAssigner(cardPalette),
-			valueColors: valuePalette ? new ColorAssigner(valuePalette) : undefined,
+			valueColors,
 			notebookNavigator: config.folderIconSource === 'notebook-navigator'
 				? getNotebookNavigatorApi(this.app)
 				: null,
@@ -1100,6 +1111,7 @@ export class CollectionView extends BasesView {
 				displayName,
 				valueColorPalette: propertyColorsEnabled ? context.valuePalette : undefined,
 				valueColors: propertyColorsEnabled ? context.valueColors : undefined,
+				valueColorOverrides: propertyColorsEnabled ? this.plugin.settings.propertyValueColorOverrides : undefined,
 				onBooleanChange: property.startsWith('note.')
 					? (checked) => writeBooleanProperty(this.app, entry, property, checked)
 					: undefined,

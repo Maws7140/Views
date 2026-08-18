@@ -5,6 +5,7 @@ import {
 	BooleanValue,
 	Notice,
 	QueryController,
+	SliderOption,
 	TFile,
 	ViewOption,
 } from 'obsidian';
@@ -14,7 +15,7 @@ import {
 	type SearchModel,
 	type SearchRow,
 } from './search/SearchRenderer';
-import { isPropertyColorEnabled } from './settings/settings';
+import { isPropertyColorEnabled, overrideColorsForProperty } from './settings/settings';
 import { ColorAssigner, parseCustomPalette, resolveColorPalette } from './table-colors/palettes';
 import { renderPropertyValue } from './ui/PropertyValueRenderer';
 import { showFileMenu } from './ui/EntryInteractions';
@@ -61,6 +62,7 @@ export class SearchView extends BasesView {
 			menu: (path, anchor) => this.openMenu(path, anchor),
 			renderProperties: (containerEl, path) => this.renderProperties(containerEl, path),
 		});
+		this.register(this.plugin.onPropertyColorSettingsChanged(() => this.onDataUpdated()));
 	}
 
 	onunload(): void {
@@ -126,6 +128,23 @@ export class SearchView extends BasesView {
 						key: 'propertyValueColors',
 						default: true,
 					},
+					{
+						displayName: 'Paginate',
+						type: 'toggle',
+						key: 'paginate',
+						default: false,
+					},
+					{
+						displayName: 'Rows per page',
+						type: 'slider',
+						key: 'pageSize',
+						default: 50,
+						min: 10,
+						max: 500,
+						step: 1,
+						instant: true,
+						shouldHide: (config: { get(key: string): unknown }) => config.get('paginate') !== true,
+					} as SliderOption & { shouldHide(config: { get(key: string): unknown }): boolean },
 				],
 			},
 		];
@@ -134,6 +153,16 @@ export class SearchView extends BasesView {
 	onDataUpdated(): void {
 		const palette = this.valuePalette();
 		this.colors = palette ? new ColorAssigner(palette) : null;
+		// Reserved before anything else resolves, so the automatic picker never
+		// lands a different value on a color the user already chose for it.
+		if (this.colors) {
+			for (const property of this.displayProperties()) {
+				if (!isPropertyColorEnabled(this.plugin.settings, property)) continue;
+				for (const hex of overrideColorsForProperty(this.plugin.settings.propertyValueColorOverrides, property)) {
+					this.colors.reserve(property, hex);
+				}
+			}
+		}
 		this.renderer.update(this.buildModel());
 	}
 
@@ -161,6 +190,7 @@ export class SearchView extends BasesView {
 			density: this.stringConfig('density', 'comfortable') === 'compact' ? 'compact' : 'comfortable',
 			placeholder: 'Search',
 			emptyNotice: 'This base returned no notes.',
+			pageSize: this.config.get('paginate') === true ? this.numberOption('pageSize', 50, 10, 500) : 0,
 		};
 	}
 
@@ -229,6 +259,9 @@ export class SearchView extends BasesView {
 					: undefined,
 				valueColors: isPropertyColorEnabled(this.plugin.settings, property)
 					? this.colors ?? undefined
+					: undefined,
+				valueColorOverrides: isPropertyColorEnabled(this.plugin.settings, property)
+					? this.plugin.settings.propertyValueColorOverrides
 					: undefined,
 				onBooleanChange: property.startsWith('note.')
 					? (checked) => writeBooleanProperty(this.app, entry, property, checked)
@@ -315,6 +348,12 @@ export class SearchView extends BasesView {
 	private stringConfig(key: string, fallback: string): string {
 		const value = this.config.get(key);
 		return typeof value === 'string' && value ? value : fallback;
+	}
+
+	private numberOption(key: string, fallback: number, min: number, max: number): number {
+		const value = this.config.get(key);
+		if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+		return Math.min(max, Math.max(min, value));
 	}
 
 }

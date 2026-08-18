@@ -1,7 +1,7 @@
 import type { ColorPackId } from '../table-colors/palettes';
 import type { TimelineViewportState } from '../types';
 
-export const SETTINGS_VERSION = 7;
+export const SETTINGS_VERSION = 8;
 
 /** Remembered viewports are a convenience, not data. Keep the list bounded. */
 const MAX_REMEMBERED_VIEWPORTS = 60;
@@ -18,6 +18,13 @@ export interface ViewsPluginSettings {
 	tableColorDisabledBases: string[];
 	horizontalViewTabsEnabled: boolean;
 	timelineViewports: Record<string, TimelineViewportState & { updatedAt: number }>;
+	/**
+	 * An override wins unconditionally over the automatic assigner, keyed by
+	 * `normalizeColorPropertyId(property) -> propertyValueColorSeed(value)
+	 * lowercased -> hex`, so "Done" on Status can be colored without repainting
+	 * "Done" on Priority.
+	 */
+	propertyValueColorOverrides: Record<string, Record<string, string>>;
 }
 
 export const DEFAULT_SETTINGS: ViewsPluginSettings = {
@@ -28,6 +35,7 @@ export const DEFAULT_SETTINGS: ViewsPluginSettings = {
 	tableColorEnabledProperties: [], tableColorDisabledBases: [],
 	horizontalViewTabsEnabled: true,
 	timelineViewports: {},
+	propertyValueColorOverrides: {},
 };
 
 const LEGACY_KEYS = [
@@ -86,6 +94,35 @@ export function migrateSettings(raw: unknown): { settings: ViewsPluginSettings; 
 			.map((value) => value.trim())
 			.filter(Boolean);
 	}
+	const overrides = settings.propertyValueColorOverrides;
+	if (!overrides || typeof overrides !== 'object' || Array.isArray(overrides)) {
+		settings.propertyValueColorOverrides = {};
+		changed = true;
+	} else {
+		const validated: Record<string, Record<string, string>> = {};
+		for (const [property, byValue] of Object.entries(overrides)) {
+			if (typeof property !== 'string' || !byValue || typeof byValue !== 'object' || Array.isArray(byValue)) {
+				changed = true;
+				continue;
+			}
+			const propKey = normalizeColorPropertyId(property);
+			if (!propKey) { changed = true; continue; }
+			const validValues: Record<string, string> = {};
+			for (const [seed, hex] of Object.entries(byValue as Record<string, unknown>)) {
+				if (typeof hex !== 'string' || !/^#[0-9a-f]{6}$/i.test(hex)) { changed = true; continue; }
+				const seedKey = seed.trim().toLowerCase();
+				if (!seedKey) { changed = true; continue; }
+				validValues[seedKey] = hex.toLowerCase();
+			}
+			if (Object.keys(validValues).length) {
+				validated[propKey] = { ...(validated[propKey] ?? {}), ...validValues };
+			} else {
+				changed = true;
+			}
+		}
+		if (JSON.stringify(validated) !== JSON.stringify(overrides)) changed = true;
+		settings.propertyValueColorOverrides = validated;
+	}
 	return { settings, changed };
 }
 
@@ -102,6 +139,67 @@ export function normalizeColorPropertyId(propertyId: string): string {
 		return source === 'note' ? `note.${rest.toLocaleLowerCase()}` : `${source}.${rest}`;
 	}
 	return `note.${trimmed.toLocaleLowerCase()}`;
+}
+
+/** The seed key an override is stored under: same identity, case-insensitive. */
+export function propertyValueColorSeedKey(seed: string): string {
+	return seed.trim().toLowerCase();
+}
+
+/**
+ * An explicit color for one property's one value, or undefined for automatic.
+ * Takes the overrides map directly (not the whole settings object) so the
+ * rendering layer can look one up without depending on `ViewsPluginSettings`.
+ */
+export function getPropertyValueColorOverride(
+	overrides: Record<string, Record<string, string>>,
+	property: string,
+	seed: string,
+): string | undefined {
+	if (!seed) return undefined;
+	const byValue = overrides[normalizeColorPropertyId(property)];
+	return byValue?.[propertyValueColorSeedKey(seed)];
+}
+
+export function setPropertyValueColorOverride(
+	settings: ViewsPluginSettings,
+	property: string,
+	seed: string,
+	hex: string,
+): void {
+	const propKey = normalizeColorPropertyId(property);
+	const seedKey = propertyValueColorSeedKey(seed);
+	if (!propKey || !seedKey) return;
+	const byValue = { ...(settings.propertyValueColorOverrides[propKey] ?? {}) };
+	byValue[seedKey] = hex.toLowerCase();
+	settings.propertyValueColorOverrides = { ...settings.propertyValueColorOverrides, [propKey]: byValue };
+}
+
+export function clearPropertyValueColorOverride(
+	settings: ViewsPluginSettings,
+	property: string,
+	seed: string,
+): void {
+	const propKey = normalizeColorPropertyId(property);
+	const seedKey = propertyValueColorSeedKey(seed);
+	const byValue = settings.propertyValueColorOverrides[propKey];
+	if (!byValue || !(seedKey in byValue)) return;
+	const nextByValue = { ...byValue };
+	delete nextByValue[seedKey];
+	const nextOverrides = { ...settings.propertyValueColorOverrides };
+	if (Object.keys(nextByValue).length) nextOverrides[propKey] = nextByValue;
+	else delete nextOverrides[propKey];
+	settings.propertyValueColorOverrides = nextOverrides;
+}
+
+/** Every override hex for one property, for reserving them with `ColorAssigner.reserve` before resolving anything else in a render pass. */
+export function overrideColorsForProperty(
+	overrides: Record<string, Record<string, string>>,
+	property: string | null | undefined,
+): string[] {
+	if (!property) return [];
+	const byValue = overrides[normalizeColorPropertyId(property)];
+	return byValue ? Object.values(byValue) : [];
 }
 
 /** Automatic colors are opt-in per property and shared by every surface. */

@@ -1,8 +1,17 @@
 import { App, Component, Menu, Notice, setIcon, TFile } from 'obsidian';
-import { isPropertyColorEnabled, normalizeColorPropertyId, type ViewsPluginSettings } from '../settings/settings';
+import {
+	clearPropertyValueColorOverride,
+	getPropertyValueColorOverride,
+	isPropertyColorEnabled,
+	normalizeColorPropertyId,
+	overrideColorsForProperty,
+	setPropertyValueColorOverride,
+	type ViewsPluginSettings,
+} from '../settings/settings';
 import { RenderScheduler } from '../performance/RenderScheduler';
 import { reportPerformance } from '../performance/metrics';
 import { applyPropertyValuePill, propertyValueColorSeed } from '../ui/PropertyValueRenderer';
+import { PropertyValueColorModal } from '../ui/PropertyValueColorModal';
 import { ColorAssigner, resolveColorPalette } from './palettes';
 
 const BASE_ROOT = '.bases-view, .bases-embed';
@@ -30,10 +39,13 @@ export class TableColorEnhancer extends Component {
 	private readonly scheduler = new RenderScheduler(() => this.flushPending());
 	private colors: ColorAssigner | null = null;
 	private colorsKey = '';
+	/** Properties whose overrides have already been reserved into `this.colors`, reset whenever the assigner itself is rebuilt. */
+	private readonly reservedOverrideProperties = new Set<string>();
 	private readonly decoratedState = new WeakMap<HTMLElement, string>();
 	private basePathCache = new WeakMap<HTMLElement, string | null>();
 	private readonly toggleButtons = new Map<HTMLElement, HTMLButtonElement>();
 	private readonly menuHeaders = new WeakSet<HTMLElement>();
+	private readonly menuValues = new WeakSet<HTMLElement>();
 
 	constructor(
 		private readonly app: App,
@@ -463,9 +475,12 @@ export class TableColorEnhancer extends Component {
 		// its native presentation instead of gaining an empty chip.
 		// One pill function for the whole plugin. `applyPropertyValuePill` is what
 		// tags, list items, Collection chips, and timeline chips already use.
-		const colored = applyPropertyValuePill(pill, value, palette, this.assigner(palette), propertyId);
+		const assigner = this.assigner(palette);
+		this.ensureOverridesReserved(propertyId, assigner);
+		const colored = applyPropertyValuePill(pill, value, palette, assigner, propertyId, propertyId, this.getSettings().propertyValueColorOverrides);
 		if (colored) pill.addClass('views-colored-pill');
 		this.decoratedState.set(pill, state);
+		this.bindValueColorMenu(pill, propertyId, value);
 		return colored || wasColored;
 	}
 
@@ -475,14 +490,70 @@ export class TableColorEnhancer extends Component {
 		if (this.decoratedState.get(valueEl) === state) return false;
 		const wasColored = valueEl.hasClass('has-value-color');
 		this.clearElement(valueEl);
-		const colored = applyPropertyValuePill(valueEl, value, palette, this.assigner(palette), propertyId);
+		const assigner = this.assigner(palette);
+		this.ensureOverridesReserved(propertyId, assigner);
+		const colored = applyPropertyValuePill(valueEl, value, palette, assigner, propertyId, propertyId, this.getSettings().propertyValueColorOverrides);
 		if (colored) valueEl.addClass('views-colored-pill');
+		this.bindValueColorMenu(valueEl, propertyId, value);
 		this.decoratedState.set(valueEl, state);
 		return colored || wasColored;
 	}
 
 	private isColumnEnabled(propertyId: string, settings = this.getSettings()): boolean {
 		return isPropertyColorEnabled(settings, propertyId);
+	}
+
+	/**
+	 * "Set color..." on a colored pill, right where the color already lives.
+	 * Bound once per element and kept for its lifetime; `decoratedState`
+	 * governs whether the pill's color itself gets recomputed, not this.
+	 */
+	private bindValueColorMenu(el: HTMLElement, propertyId: string, value: unknown): void {
+		if (this.menuValues.has(el)) return;
+		this.menuValues.add(el);
+		this.registerDomEvent(el, 'contextmenu', (event) => {
+			const seed = propertyValueColorSeed(value);
+			if (!seed) return;
+			event.preventDefault();
+			event.stopPropagation();
+			this.openValueColorMenu(event, propertyId, seed);
+		});
+	}
+
+	private openValueColorMenu(event: MouseEvent, propertyId: string, seed: string): void {
+		const settings = this.getSettings();
+		const displayName = propertyId.replace(/^(?:note|file|formula)\./, '');
+		const current = getPropertyValueColorOverride(settings.propertyValueColorOverrides, propertyId, seed);
+		Menu.forEvent(event)
+			.addItem((item) => item
+				.setTitle('Set color...')
+				.setIcon('palette')
+				.setSection('action')
+				.onClick(() => this.openValueColorModal(propertyId, displayName, seed, current)))
+			.addItem((item) => item
+				.setTitle('Reset to automatic')
+				.setIcon('rotate-ccw')
+				.setSection('action')
+				.setDisabled(!current)
+				.onClick(() => void this.resetValueColor(propertyId, seed)));
+	}
+
+	private openValueColorModal(propertyId: string, displayName: string, seed: string, current: string | undefined): void {
+		const swatches = this.palette(this.getSettings());
+		new PropertyValueColorModal(this.app, displayName, seed, swatches, current, {
+			onChoose: (hex) => void this.setValueColor(propertyId, seed, hex),
+			onReset: () => void this.resetValueColor(propertyId, seed),
+		}).open();
+	}
+
+	private async setValueColor(propertyId: string, seed: string, hex: string): Promise<void> {
+		setPropertyValueColorOverride(this.getSettings(), propertyId, seed, hex);
+		await this.saveSettings();
+	}
+
+	private async resetValueColor(propertyId: string, seed: string): Promise<void> {
+		clearPropertyValueColorOverride(this.getSettings(), propertyId, seed);
+		await this.saveSettings();
 	}
 
 	private normalizePropertyId(propertyId: string): string {
@@ -648,8 +719,24 @@ export class TableColorEnhancer extends Component {
 		if (!this.colors || this.colorsKey !== key) {
 			this.colors = new ColorAssigner(palette);
 			this.colorsKey = key;
+			this.reservedOverrideProperties.clear();
 		}
 		return this.colors;
+	}
+
+	/**
+	 * A table decorates cells incrementally, so there is no single point before
+	 * "resolving anything" the way a Collection or Kanban render has. Reserving
+	 * lazily, once per property per assigner lifetime, gets the same guarantee:
+	 * by the time any value's color is resolved, every override for that
+	 * property is already off the table for the automatic picker.
+	 */
+	private ensureOverridesReserved(propertyId: string, assigner: ColorAssigner): void {
+		if (this.reservedOverrideProperties.has(propertyId)) return;
+		this.reservedOverrideProperties.add(propertyId);
+		for (const hex of overrideColorsForProperty(this.getSettings().propertyValueColorOverrides, propertyId)) {
+			assigner.reserve(propertyId, hex);
+		}
 	}
 
 	private palette(settings: ViewsPluginSettings): string[] {

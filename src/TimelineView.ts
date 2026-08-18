@@ -19,7 +19,7 @@ import {
 } from './collection/appearance';
 import { EntryInteractions, type EntryTarget } from './ui/EntryInteractions';
 import { extractTimestamp } from './logic/dateValue';
-import { isPropertyColorEnabled } from './settings/settings';
+import { isPropertyColorEnabled, overrideColorsForProperty } from './settings/settings';
 import { ColorAssigner, parseCustomPalette, resolveColorPalette } from './table-colors/palettes';
 import { resolvePropertyValueColor } from './ui/PropertyValueRenderer';
 import type { TimelineConfig, TimelineItem, TimelineItemProperty, TimelineViewportState } from './types';
@@ -167,6 +167,11 @@ export class TimelineView extends BasesView {
 		// pass, and a kept one would freeze colors and grow without bound.
 		this.barColors = new ColorAssigner(this.valuePalette());
 		const config = this.loadConfig();
+		// Reserved before anything else resolves, so the automatic picker never
+		// lands a different bar on a color the user already chose.
+		for (const hex of overrideColorsForProperty(this.plugin.settings.propertyValueColorOverrides, this.colorProp)) {
+			this.barColors.reserve('bar', hex);
+		}
 		const rendererData = this.buildRendererData(config);
 		this.renderer.updateData(rendererData, config);
 		if (!this.restoredViewport) {
@@ -539,7 +544,7 @@ export class TimelineView extends BasesView {
 		if (!this.plugin.settings.tableColorsEnabled) return null;
 		const seed = this.colorProp ? entry.getValue(this.colorProp) : groupKey;
 		if (seed === null || seed === undefined) return null;
-		return resolvePropertyValueColor(seed, this.valuePalette(), this.barColors ?? undefined, 'bar');
+		return resolvePropertyValueColor(seed, this.valuePalette(), this.barColors ?? undefined, 'bar', this.colorProp ?? undefined, this.plugin.settings.propertyValueColorOverrides);
 	}
 
 	/** View pack when chosen, otherwise the pack from the Colors settings. */

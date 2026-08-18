@@ -215,6 +215,23 @@ export class ColorAssigner {
 	}
 
 	/**
+	 * Marks a color as already spoken for by an explicit override, so the
+	 * automatic picker never lands a different value on the same or a visually
+	 * similar shade. Call once per override before resolving anything else in
+	 * the scope; the assigner is rebuilt every render, so there is always a
+	 * fresh place to do this.
+	 */
+	reserve(scope: string, hex: string): void {
+		let state = this.scopes.get(scope);
+		if (!state) {
+			state = { assigned: new Map(), taken: new Set(), usedLabs: [] };
+			this.scopes.set(scope, state);
+		}
+		state.taken.add(hex);
+		state.usedLabs.push(toLab(hex));
+	}
+
+	/**
 	 * The value's own color when it works, then the best remaining one.
 	 *
 	 * The scan starts at the preferred entry rather than at the top of the pack,

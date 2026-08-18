@@ -30,6 +30,8 @@ export interface SearchModel {
 	placeholder: string;
 	/** Why the result list is empty when the base itself returned nothing. */
 	emptyNotice: string;
+	/** 0 means off: every filtered row renders, same as before pagination existed. */
+	pageSize: number;
 }
 
 export interface SearchCallbacks {
@@ -50,6 +52,7 @@ const EMPTY_MODEL: SearchModel = {
 	density: 'comfortable',
 	placeholder: 'Search',
 	emptyNotice: '',
+	pageSize: 0,
 };
 
 /**
@@ -61,12 +64,17 @@ export class SearchRenderer {
 	private readonly rootEl: HTMLElement;
 	private readonly inputEl: HTMLInputElement;
 	private readonly resultsEl: HTMLElement;
+	private readonly paginationEl: HTMLElement;
 	private readonly footerEl: HTMLElement;
 	private model: SearchModel = EMPTY_MODEL;
 	private query = '';
-	/** Rows currently on screen, in the order the arrows walk them. */
+	/** Rows currently on screen, in the order the arrows walk them. Holds the
+	 * current page, not the whole filtered set, so End and the selection never
+	 * point at a row that is not drawn. */
 	private visible: SearchRow[] = [];
 	private selected = 0;
+	private page = 0;
+	private lastFilteredTotal = 0;
 	private readonly rowEls = new Map<string, HTMLElement>();
 
 	constructor(containerEl: HTMLElement, private readonly callbacks: SearchCallbacks) {
@@ -78,11 +86,13 @@ export class SearchRenderer {
 			attr: { type: 'text', placeholder: 'Search', spellcheck: 'false' },
 		});
 		this.resultsEl = this.rootEl.createDiv({ cls: 'mbv-ray-results' });
+		this.paginationEl = this.rootEl.createDiv({ cls: 'mbv-ray-pagination' });
 		this.footerEl = this.rootEl.createDiv({ cls: 'mbv-ray-footer' });
 		this.renderFooter();
 		this.inputEl.addEventListener('input', () => {
 			this.query = this.inputEl.value;
 			this.selected = 0;
+			this.page = 0;
 			this.renderResults();
 		});
 		this.inputEl.addEventListener('keydown', (event) => this.handleKey(event));
@@ -125,11 +135,22 @@ export class SearchRenderer {
 		switch (event.key) {
 			case 'ArrowDown':
 				event.preventDefault();
+				// The field holds focus for the life of the view, so paging past the
+				// last row of a page is the only gesture available for "next page".
+				if (this.selected >= this.visible.length - 1 && this.goToPage(this.page + 1)) return;
 				this.select(this.selected + 1);
 				return;
 			case 'ArrowUp':
 				event.preventDefault();
 				this.select(this.selected - 1);
+				return;
+			case 'PageDown':
+				event.preventDefault();
+				this.goToPage(this.page + 1);
+				return;
+			case 'PageUp':
+				event.preventDefault();
+				this.goToPage(this.page - 1);
 				return;
 			case 'Home':
 				if (!this.visible.length) return;
@@ -191,7 +212,20 @@ export class SearchRenderer {
 		this.query = value;
 		this.inputEl.value = value;
 		this.selected = 0;
+		this.page = 0;
 		this.renderResults();
+	}
+
+	/** Returns false at either end, so a caller can fall back to its own edge behavior. */
+	private goToPage(page: number): boolean {
+		if (this.model.pageSize <= 0) return false;
+		const pageCount = Math.max(1, Math.ceil(this.lastFilteredTotal / this.model.pageSize));
+		const clamped = Math.max(0, Math.min(page, pageCount - 1));
+		if (clamped === this.page) return false;
+		this.page = clamped;
+		this.selected = 0;
+		this.renderResults();
+		return true;
 	}
 
 	private select(index: number): void {
@@ -219,32 +253,74 @@ export class SearchRenderer {
 		// there is a query, and everything else about the view is unchanged.
 		if (this.model.launcher && !query) {
 			this.renderNotice('Type to search');
+			this.renderPagination(0, 0, 0);
 			this.renderFooter();
 			return;
 		}
 
-		// Everything the base handed over is rendered. How many rows that is, is
-		// the base's own limit to state, and a second cap here would only be a
-		// quieter way of contradicting it.
+		// Filtered first, across every group, so paging counts and slices
+		// exactly what the row list is about to show.
+		const filteredGroups: SearchGroup[] = [];
+		let total = 0;
 		for (const group of this.model.groups) {
 			const rows = query
 				? group.rows.filter((row) => row.searchText.includes(query))
 				: group.rows;
 			if (!rows.length) continue;
+			filteredGroups.push({ key: group.key, rows });
+			total += rows.length;
+		}
+		this.lastFilteredTotal = total;
+
+		const pageSize = this.model.pageSize;
+		const pageCount = pageSize > 0 ? Math.max(1, Math.ceil(total / pageSize)) : 1;
+		if (this.page > pageCount - 1) this.page = pageCount - 1;
+		const start = pageSize > 0 ? this.page * pageSize : 0;
+		const end = pageSize > 0 ? start + pageSize : total;
+
+		// Everything the base handed over, within the page, is rendered. How many
+		// rows the base returned in total is the base's own limit to state; a
+		// second cap here only slices what pagination itself asked for.
+		let index = 0;
+		for (const group of filteredGroups) {
+			const groupStart = index;
+			index += group.rows.length;
+			if (index <= start || groupStart >= end) continue;
+			const pageRows = group.rows.slice(Math.max(0, start - groupStart), Math.min(group.rows.length, end - groupStart));
+			if (!pageRows.length) continue;
 			if (this.model.showGroupHeadings) {
 				this.resultsEl.createDiv({ cls: 'mbv-ray-group', text: group.key || 'Ungrouped' });
 			}
-			for (const row of rows) this.renderRow(row);
-			this.visible.push(...rows);
+			for (const row of pageRows) this.renderRow(row);
+			this.visible.push(...pageRows);
 		}
 
-		if (!this.visible.length) {
+		if (!total) {
 			this.renderNotice(query
 				? `No result for "${this.query.trim()}"`
 				: this.model.emptyNotice || 'Nothing to show');
 		}
 		this.paintSelection();
+		this.renderPagination(start, total, pageSize);
 		this.renderFooter();
+	}
+
+	private renderPagination(start: number, total: number, pageSize: number): void {
+		this.paginationEl.empty();
+		this.paginationEl.toggleClass('is-visible', pageSize > 0 && total > 0);
+		if (pageSize <= 0 || !total) return;
+		const shown = Math.min(pageSize, total - start);
+		this.paginationEl.createSpan({
+			cls: 'mbv-ray-page-count',
+			text: `${start + 1} to ${start + shown} of ${total}`,
+		});
+		const navEl = this.paginationEl.createDiv({ cls: 'mbv-ray-page-nav' });
+		const prevEl = navEl.createEl('button', { cls: 'mbv-ray-page-btn', text: 'Prev' });
+		prevEl.disabled = this.page <= 0;
+		prevEl.addEventListener('click', () => this.goToPage(this.page - 1));
+		const nextEl = navEl.createEl('button', { cls: 'mbv-ray-page-btn', text: 'Next' });
+		nextEl.disabled = start + shown >= total;
+		nextEl.addEventListener('click', () => this.goToPage(this.page + 1));
 	}
 
 	private renderRow(row: SearchRow): void {

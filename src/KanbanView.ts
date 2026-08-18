@@ -31,7 +31,7 @@ import {
 import { applyManualOrder, NO_LANE_KEY, partitionGroupsIntoLanes } from './logic/lanes';
 import { EntryInteractions, type EntryTarget } from './ui/EntryInteractions';
 import { TaskNotesBridge, type TaskNotesChoice } from './integrations/TaskNotesBridge';
-import { isPropertyColorEnabled } from './settings/settings';
+import { isPropertyColorEnabled, overrideColorsForProperty } from './settings/settings';
 import { ColorAssigner, parseCustomPalette } from './table-colors/palettes';
 import { resolvePropertyValueColor } from './ui/PropertyValueRenderer';
 import type ViewsPlugin from './main';
@@ -250,6 +250,14 @@ export class KanbanView extends BasesView {
 	private buildModel(): KanbanModel {
 		this.entriesById.clear();
 		this.colors = new ColorAssigner(this.headerPalette());
+		// Reserved before anything else resolves, so the automatic picker never
+		// lands a different lane or column on a color the user already chose.
+		for (const hex of overrideColorsForProperty(this.plugin.settings.propertyValueColorOverrides, this.laneProp)) {
+			this.colors.reserve('lane', hex);
+		}
+		for (const hex of overrideColorsForProperty(this.plugin.settings.propertyValueColorOverrides, this.groupProperty.property)) {
+			this.colors.reserve('column', hex);
+		}
 		this.cardLocations.clear();
 		// Entries are recreated on every result set, so cached cards go with them.
 		this.cardCache.clear();
@@ -305,7 +313,7 @@ export class KanbanView extends BasesView {
 			key: lane.key,
 			label: lane.label,
 			color: this.laneProp && lane.key !== NO_LANE_KEY && this.plugin.settings.tableColorsEnabled
-				? resolvePropertyValueColor(lane.key, palette, this.colors ?? undefined, 'lane') ?? undefined
+				? resolvePropertyValueColor(lane.key, palette, this.colors ?? undefined, 'lane', this.laneProp, this.plugin.settings.propertyValueColorOverrides) ?? undefined
 				: undefined,
 			count: columns.reduce((total, column) => total + (column.cards.get(lane.key)?.length ?? 0), 0),
 		}));
@@ -638,7 +646,7 @@ export class KanbanView extends BasesView {
 			key,
 			label: choice?.label ?? key,
 			color: choice?.color ?? (this.plugin.settings.tableColorsEnabled
-				? resolvePropertyValueColor(key, palette, this.colors ?? undefined, 'column') ?? undefined
+				? resolvePropertyValueColor(key, palette, this.colors ?? undefined, 'column', this.groupProperty.property ?? undefined, this.plugin.settings.propertyValueColorOverrides) ?? undefined
 				: undefined),
 			icon: this.columnIcon(key),
 			count,

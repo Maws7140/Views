@@ -18,6 +18,7 @@ import {
 	setIcon,
 } from 'obsidian';
 import { ColorAssigner, stableColor } from '../table-colors/palettes';
+import { getPropertyValueColorOverride } from '../settings/settings';
 
 const dateFormatters = new Map<string, Intl.DateTimeFormat>();
 
@@ -31,6 +32,8 @@ export interface PropertyValueRenderContext {
 	 * each value is hashed on its own and a collision is possible.
 	 */
 	valueColors?: ColorAssigner;
+	/** An explicit color for one property's one value wins over the assigner. */
+	valueColorOverrides?: Record<string, Record<string, string>>;
 	onBooleanChange?: (checked: boolean) => Promise<void>;
 }
 
@@ -53,7 +56,7 @@ export function renderPropertyValue(
 	// A scalar takes its pill on an inner span, not on the container. See
 	// `renderValueChip`.
 	if (!(value instanceof TagValue) && !isScalarValue(value)) {
-		applyPropertyValuePill(container, value, context.valueColorPalette, context.valueColors, context.property);
+		applyPropertyValuePill(container, value, context.valueColorPalette, context.valueColors, context.property, context.property, context.valueColorOverrides);
 	}
 	if (value instanceof DateValue) {
 		renderDate(container, value, context.property);
@@ -111,7 +114,7 @@ function isScalarValue(value: Value): boolean {
  */
 function renderValueChip(container: HTMLElement, value: Value, context: PropertyValueRenderContext): void {
 	const chipEl = container.createSpan({ cls: 'views-value-chip', text: value.toString() });
-	applyPropertyValuePill(chipEl, value, context.valueColorPalette, context.valueColors, context.property);
+	applyPropertyValuePill(chipEl, value, context.valueColorPalette, context.valueColors, context.property, context.property, context.valueColorOverrides);
 }
 
 function renderList(container: HTMLElement, value: ListValue, context: PropertyValueRenderContext): void {
@@ -130,7 +133,7 @@ function renderPill(
 ): void {
 	const itemEl = container.createSpan({ cls: 'views-property-item' });
 	if (tag || value instanceof TagValue) itemEl.addClass('is-tag');
-	applyPropertyValuePill(itemEl, value, context.valueColorPalette, context.valueColors, context.property);
+	applyPropertyValuePill(itemEl, value, context.valueColorPalette, context.valueColors, context.property, context.property, context.valueColorOverrides);
 	if (isRichValue(value)) {
 		value.renderTo(itemEl, context.app.renderContext);
 	} else {
@@ -148,8 +151,10 @@ export function applyPropertyValuePill(
 	palette: string[] | undefined,
 	assigner?: ColorAssigner,
 	scope?: string,
+	property?: string,
+	overrides?: Record<string, Record<string, string>>,
 ): boolean {
-	if (!applyPropertyValueColor(element, value, palette, assigner, scope)) return false;
+	if (!applyPropertyValueColor(element, value, palette, assigner, scope, property, overrides)) return false;
 	element.addClass('views-property-pill');
 	return true;
 }
@@ -161,8 +166,10 @@ export function applyPropertyValueColor(
 	palette: string[] | undefined,
 	assigner?: ColorAssigner,
 	scope?: string,
+	property?: string,
+	overrides?: Record<string, Record<string, string>>,
 ): boolean {
-	const color = resolvePropertyValueColor(value, palette, assigner, scope);
+	const color = resolvePropertyValueColor(value, palette, assigner, scope, property, overrides);
 	if (!color) return false;
 	element.addClass('has-value-color');
 	element.style.setProperty('--views-property-color', color);
@@ -174,15 +181,23 @@ export function applyPropertyValueColor(
  *
  * With an assigner, no two values in the same scope share a color. Without one,
  * each value is hashed on its own, which is the old behaviour and can collide.
+ * An explicit override, when `property` and `overrides` are both given, wins
+ * unconditionally over the assigner and the palette alike.
  */
 export function resolvePropertyValueColor(
 	value: unknown,
 	palette: string[] | undefined,
 	assigner?: ColorAssigner,
 	scope?: string,
+	property?: string,
+	overrides?: Record<string, Record<string, string>>,
 ): string | null {
 	const seed = propertyValueColorSeed(value);
 	if (!seed) return null;
+	if (property && overrides) {
+		const override = getPropertyValueColorOverride(overrides, property, seed);
+		if (override) return override;
+	}
 	if (assigner) return assigner.color(scope ?? '', seed);
 	if (!palette?.length) return null;
 	return stableColor(seed, palette);
