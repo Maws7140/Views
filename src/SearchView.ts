@@ -3,10 +3,12 @@ import {
 	BasesPropertyId,
 	BasesView,
 	BooleanValue,
+	ListValue,
 	Notice,
 	QueryController,
 	SliderOption,
 	TFile,
+	Value,
 	ViewOption,
 } from 'obsidian';
 import {
@@ -20,12 +22,18 @@ import { ColorAssigner, parseCustomPalette, resolveColorPalette } from './table-
 import { renderPropertyValue } from './ui/PropertyValueRenderer';
 import { showFileMenu } from './ui/EntryInteractions';
 import { writeBooleanProperty } from './ui/writeBooleanProperty';
+import { RenderScheduler } from './performance/RenderScheduler';
+import { reportPerformance } from './performance/metrics';
 import type ViewsPlugin from './main';
 
 // This view was called Raycast before it was renamed to Search. The wire
 // value has to stay 'more-bases-raycast' forever: it is written into every
 // .base file that already uses this view, and changing it would orphan them.
 export const SearchViewType = 'more-bases-raycast';
+
+/** Above this many rows, pagination turns itself on unless the user has
+ * explicitly set it either way. See `buildModel`. */
+const LARGE_RESULT_THRESHOLD = 200;
 
 /**
  * Revealing a file is the file explorer's own job and is not in the public API,
@@ -39,6 +47,25 @@ interface AppWithInternalPlugins {
 	internalPlugins?: { getEnabledPluginById(id: string): unknown };
 }
 
+interface SearchTextCacheEntry {
+	mtime: number;
+	text: string;
+}
+
+/**
+ * Everything a single render's `renderProperties` calls need that does not
+ * change per row: the property list, the palette, and whether colors are on
+ * for each property. Built once per render instead of recomputed per row,
+ * which is what made a large base's render cost scale with
+ * rows x properties x enabled-property checks.
+ */
+interface SearchRenderContext {
+	properties: BasesPropertyId[];
+	palette: string[] | undefined;
+	colorEnabled: Map<BasesPropertyId, boolean>;
+	displayNames: Map<BasesPropertyId, string>;
+}
+
 export class SearchView extends BasesView {
 	type = SearchViewType;
 	private readonly containerEl: HTMLElement;
@@ -46,6 +73,20 @@ export class SearchView extends BasesView {
 	private readonly entriesByPath = new Map<string, BasesEntry>();
 	/** Rebuilt per render, so two values of a property never share a color. */
 	private colors: ColorAssigner | null = null;
+	private context: SearchRenderContext | null = null;
+	/** Values already resolved while building a row's search text, keyed by
+	 * path, reused by `renderProperties` instead of calling `entry.getValue`
+	 * again for the same property in the same render. Cleared and rebuilt on
+	 * every `buildModel`; a cache miss (a row whose search text came from the
+	 * per-file cache below) simply falls back to `entry.getValue`. */
+	private valuesByPath = new Map<string, (Value | null)[]>();
+	/** Per-file, survives across renders. A row's search text only depends on
+	 * the file's content and the current title/search-scope/property-order
+	 * configuration, so an unrelated vault edit no longer costs every other
+	 * row a rebuild, just the one file that actually changed. */
+	private readonly searchTextCache = new Map<string, SearchTextCacheEntry>();
+	private searchTextSignature = '';
+	private readonly scheduler = new RenderScheduler(() => this.flushDataUpdate());
 
 	constructor(
 		private readonly plugin: ViewsPlugin,
@@ -66,6 +107,7 @@ export class SearchView extends BasesView {
 	}
 
 	onunload(): void {
+		this.scheduler.cancel();
 		this.renderer.destroy();
 	}
 
@@ -142,7 +184,11 @@ export class SearchView extends BasesView {
 						min: 10,
 						max: 500,
 						step: 1,
-						instant: true,
+						// A visual dimension like card width wants live feedback while
+						// dragging. This is not that: every tick re-queries and rebuilds
+						// the whole list (see `SearchRenderer.renderResults`), so `instant`
+						// here turned a drag on a large base into a freeze.
+						instant: false,
 						shouldHide: (config: { get(key: string): unknown }) => config.get('paginate') !== true,
 					} as SliderOption & { shouldHide(config: { get(key: string): unknown }): boolean },
 				],
@@ -151,46 +197,100 @@ export class SearchView extends BasesView {
 	}
 
 	onDataUpdated(): void {
+		// A burst of vault events (any modify, anywhere in the vault, since this
+		// re-queries on every one of them) collapses into a single rebuild on the
+		// next frame instead of one rebuild per event.
+		this.scheduler.schedule();
+	}
+
+	private flushDataUpdate(): void {
+		const modelStartedAt = performance.now();
 		const palette = this.valuePalette();
 		this.colors = palette ? new ColorAssigner(palette) : null;
+		const properties = this.displayProperties();
+		this.context = this.createRenderContext(properties, palette);
 		// Reserved before anything else resolves, so the automatic picker never
 		// lands a different value on a color the user already chose for it.
 		if (this.colors) {
-			for (const property of this.displayProperties()) {
-				if (!isPropertyColorEnabled(this.plugin.settings, property)) continue;
+			for (const property of properties) {
+				if (!this.context.colorEnabled.get(property)) continue;
 				for (const hex of overrideColorsForProperty(this.plugin.settings.propertyValueColorOverrides, property)) {
 					this.colors.reserve(property, hex);
 				}
 			}
 		}
-		this.renderer.update(this.buildModel());
+		const model = this.buildModel(properties);
+		reportPerformance('search model', modelStartedAt, { rows: model.groups.reduce((sum, g) => sum + g.rows.length, 0), properties: properties.length });
+		this.renderer.update(model);
 	}
 
-	private buildModel(): SearchModel {
+	private createRenderContext(properties: BasesPropertyId[], palette: string[] | undefined): SearchRenderContext {
+		const colorEnabled = new Map<BasesPropertyId, boolean>();
+		const displayNames = new Map<BasesPropertyId, string>();
+		for (const property of properties) {
+			colorEnabled.set(property, isPropertyColorEnabled(this.plugin.settings, property));
+			displayNames.set(property, this.config.getDisplayName(property));
+		}
+		return { properties, palette, colorEnabled, displayNames };
+	}
+
+	private buildModel(properties: BasesPropertyId[]): SearchModel {
 		this.entriesByPath.clear();
+		this.valuesByPath = new Map();
 		const titleProp = this.config.getAsPropertyId('titleProperty');
 		const subtitle = this.stringConfig('subtitle', 'folder');
 		const searchProperties = this.stringConfig('searchScope', 'all') !== 'title';
-		const properties = this.displayProperties();
+
+		const signature = JSON.stringify([this.config.getOrder(), titleProp, searchProperties]);
+		if (signature !== this.searchTextSignature) {
+			this.searchTextCache.clear();
+			this.searchTextSignature = signature;
+		}
+
 		const groups: SearchGroup[] = [];
 		for (const group of this.data?.groupedData ?? []) {
 			const rows: SearchRow[] = [];
+			let rowIndex = 0;
 			for (const entry of group.entries) {
 				this.entriesByPath.set(entry.file.path, entry);
-				rows.push(this.buildRow(entry, titleProp, subtitle, searchProperties, properties));
+				const row = this.buildRow(entry, titleProp, subtitle, searchProperties, properties);
+				row.key = `${groups.length}:${rowIndex}:${row.path}`;
+				rows.push(row);
+				rowIndex += 1;
 			}
 			if (rows.length) groups.push({ key: group.key?.toString() ?? '', rows });
 		}
+
+		const rowCount = groups.reduce((sum, group) => sum + group.rows.length, 0);
+		const paginateOption = this.config.get('paginate');
+		// Bases does not auto-apply declared view-option defaults in this plugin's
+		// experience, so `undefined` reliably means "the user never touched this",
+		// which is the only signal safe to override. Only `false` is treated as an
+		// explicit opt-out.
+		const auto = paginateOption === undefined && rowCount > LARGE_RESULT_THRESHOLD;
+		const paginate = paginateOption === true || auto;
+		const density = this.stringConfig('density', 'comfortable') === 'compact' ? 'compact' : 'comfortable';
+		const showProperties = this.config.get('showProperties') !== false;
+		const columnSignature = JSON.stringify([
+			properties,
+			density,
+			showProperties,
+			Boolean(this.context?.palette),
+			this.plugin.settings.tableColorsEnabled,
+		]);
+
 		return {
 			groups,
 			showGroupHeadings: groups.length > 1 || Boolean(groups[0]?.key),
 			launcher: this.config.get('launcher') === true,
-			showProperties: this.config.get('showProperties') !== false,
+			showProperties,
 			propertyCount: properties.length,
-			density: this.stringConfig('density', 'comfortable') === 'compact' ? 'compact' : 'comfortable',
+			density,
 			placeholder: 'Search',
 			emptyNotice: 'This base returned no notes.',
-			pageSize: this.config.get('paginate') === true ? this.numberOption('pageSize', 50, 10, 500) : 0,
+			pageSize: paginate ? this.numberOption('pageSize', 50, 10, 500) : 0,
+			autoPaginated: auto,
+			columnSignature,
 		};
 	}
 
@@ -204,23 +304,45 @@ export class SearchView extends BasesView {
 		const title = (titleProp ? entry.getValue(titleProp)?.toString().trim() : '')
 			|| entry.file.basename;
 		const folder = entry.file.parent?.path ?? '';
-		// Identity fields are not a display concern, so they are matched
-		// unconditionally: file name and path stay searchable even when Title
-		// points at a different property or file.name is off the property list.
-		const terms = [...new Set([title, entry.file.basename, entry.file.name, entry.file.path])];
-		// Matched against what the row actually shows, plus the identity fields
-		// above, so a search answers what is on screen and what the file is.
-		if (searchProperties) {
-			for (const property of properties) {
-				const value = entry.getValue(property)?.toString();
-				if (value) terms.push(value);
+		const path = entry.file.path;
+		const mtime = entry.file.stat.mtime;
+		const cached = this.searchTextCache.get(path);
+
+		let searchText: string;
+		if (cached && cached.mtime === mtime) {
+			// The file has not changed since this was last computed, so neither has
+			// anything the search text or the display values are derived from.
+			searchText = cached.text;
+		} else {
+			// Identity fields are not a display concern, so they are matched
+			// unconditionally: file name and path stay searchable even when Title
+			// points at a different property or file.name is off the property list.
+			const terms = [...new Set([title, entry.file.basename, entry.file.name, entry.file.path])];
+			// Matched against what the row actually shows, plus the identity fields
+			// above, so a search answers what is on screen and what the file is.
+			if (searchProperties) {
+				const values: (Value | null)[] = [];
+				for (const property of properties) {
+					const value = entry.getValue(property);
+					values.push(value);
+					const text = value?.toString();
+					if (text) terms.push(text);
+				}
+				// Kept for `renderProperties` to reuse in this same render, so the
+				// most expensive primitive in the view (`entry.getValue`, which
+				// evaluates a formula property) is not paid twice per row.
+				this.valuesByPath.set(path, values);
 			}
+			searchText = terms.join(' ').toLowerCase();
+			this.searchTextCache.set(path, { mtime, text: searchText });
 		}
+
 		return {
-			path: entry.file.path,
+			path,
+			key: '', // assigned by the caller once the row's position in the model is known
 			title,
 			subtitle: subtitle === 'none' ? '' : subtitle === 'path' ? entry.file.path : folder === '' ? '' : folder,
-			searchText: terms.join(' ').toLowerCase(),
+			searchText,
 		};
 	}
 
@@ -237,37 +359,37 @@ export class SearchView extends BasesView {
 	/**
 	 * One cell per property, always, and in the same order. A row that skipped a
 	 * value it does not have would shift every later value into the wrong column.
+	 * Returns whether any cell in the row holds a list value, so the caller can
+	 * mark the row directly instead of leaning on a `:has()` selector.
 	 */
-	private renderProperties(rowEl: HTMLElement, path: string): void {
+	private renderProperties(rowEl: HTMLElement, path: string): boolean {
 		const entry = this.entriesByPath.get(path);
-		if (!entry) return;
-		const palette = this.valuePalette();
-		for (const property of this.displayProperties()) {
+		if (!entry || !this.context) return false;
+		const cached = this.valuesByPath.get(path);
+		let hasList = false;
+		this.context.properties.forEach((property, index) => {
 			const valueEl = rowEl.createDiv({ cls: 'mbv-ray-prop' });
-			const value = entry.getValue(property);
-			if (value === null || value === undefined) continue;
+			const value = cached ? cached[index] : entry.getValue(property);
+			if (value === null || value === undefined) return;
 			const isBoolean = value instanceof BooleanValue;
 			// An unset boolean is still a real checkbox to click, not a value to
 			// skip the way a blank text or date property is.
-			if (!isBoolean && !value.toString().trim()) continue;
+			if (!isBoolean && !value.toString().trim()) return;
+			if (value instanceof ListValue) hasList = true;
+			const colorsEnabled = this.context?.colorEnabled.get(property) ?? false;
 			renderPropertyValue(valueEl, value, {
 				app: this.app,
 				property,
-				displayName: this.config.getDisplayName(property),
-				valueColorPalette: palette && isPropertyColorEnabled(this.plugin.settings, property)
-					? palette
-					: undefined,
-				valueColors: isPropertyColorEnabled(this.plugin.settings, property)
-					? this.colors ?? undefined
-					: undefined,
-				valueColorOverrides: isPropertyColorEnabled(this.plugin.settings, property)
-					? this.plugin.settings.propertyValueColorOverrides
-					: undefined,
+				displayName: this.context?.displayNames.get(property),
+				valueColorPalette: this.context?.palette && colorsEnabled ? this.context.palette : undefined,
+				valueColors: colorsEnabled ? this.colors ?? undefined : undefined,
+				valueColorOverrides: colorsEnabled ? this.plugin.settings.propertyValueColorOverrides : undefined,
 				onBooleanChange: property.startsWith('note.')
 					? (checked) => writeBooleanProperty(this.app, entry, property, checked)
 					: undefined,
 			});
-		}
+		});
+		return hasList;
 	}
 
 	private valuePalette(): string[] | undefined {

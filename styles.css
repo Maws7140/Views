@@ -2593,7 +2593,10 @@
   grid-column: 1 / -1;
   grid-template-columns: subgrid;
   /* Hover and selection cover the row across the whole scrollable width rather
-     than stopping at the edge of the pane. */
+     than stopping at the edge of the pane. Only load-bearing while the
+     property columns are still `max-content`: once they are measured and
+     frozen to fixed pixel tracks the parent grid's own width already accounts
+     for every row, and `.is-columns-frozen` below drops this again. */
   min-width: max-content;
   align-items: center;
   padding: var(--size-2-3) var(--size-4-2);
@@ -2601,10 +2604,27 @@
   cursor: var(--cursor);
 }
 
-/* A heading and a notice are not rows of the table and span the whole width. */
+/* Once column widths are measured and frozen (SearchRenderer.measureAndFreezeColumns),
+   the parent grid's explicit pixel tracks already define the row's width, so the
+   max-content-driven minimum above is no longer needed. */
+.mbv-ray.is-columns-frozen .mbv-ray-row {
+  min-width: 0;
+}
+
+/* A heading, a notice and the progressive-render sentinel are not rows of the
+   table and span the whole width. */
 .mbv-ray-group,
-.mbv-ray-notice {
+.mbv-ray-notice,
+.mbv-ray-load-more {
   grid-column: 1 / -1;
+}
+
+.mbv-ray-load-more {
+  height: 1px;
+}
+
+.mbv-ray-group.is-continued {
+  font-style: italic;
 }
 
 .mbv-ray.is-compact .mbv-ray-row {
@@ -2693,8 +2713,12 @@
 }
 
 /* A stacked property sets the row's height, so the parts align to the top of it
-   rather than floating in the middle. */
-.mbv-ray-row:has(.mbv-ray-prop.is-list) {
+   rather than floating in the middle. `renderProperties` reports whether a row
+   holds a list value and the row gets `has-list` directly: `:has()` forces the
+   style engine to track invalidation state on every row subtree so any
+   mutation inside it can invalidate the row's own style, which is real cost
+   multiplied across thousands of rows during a rebuild and easy to avoid. */
+.mbv-ray-row.has-list {
   align-items: start;
 }
 
@@ -2725,6 +2749,22 @@
 
 .mbv-ray-pagination.is-visible {
   display: flex;
+}
+
+.mbv-ray-page-info {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-3);
+  min-width: 0;
+}
+
+.mbv-ray-page-position {
+  color: var(--text-faint);
+}
+
+.mbv-ray-page-auto {
+  color: var(--text-faint);
+  font-style: italic;
 }
 
 .mbv-ray-page-nav {

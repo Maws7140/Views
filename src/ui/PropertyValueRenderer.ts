@@ -257,9 +257,31 @@ function renderBoolean(
 	container.toggleClass('is-checked', checked);
 }
 
+/** Built once per icon name, everything after is a clone. Shared by every date and
+ * duration cell across Search, Collection and Kanban, which is where the repeated
+ * `setIcon` calls (parse + insert an SVG) actually add up. */
+const iconTemplateCache = new Map<string, SVGElement>();
+
+function iconTemplate(icon: string): SVGElement | null {
+	const cached = iconTemplateCache.get(icon);
+	if (cached) return cached;
+	const holder = document.createElement('span');
+	setIcon(holder, icon);
+	const svg = holder.firstElementChild;
+	if (!(svg instanceof SVGElement)) return null;
+	iconTemplateCache.set(icon, svg);
+	return svg;
+}
+
 function renderIconText(container: HTMLElement, icon: string, text: string, className: string): void {
 	container.addClass(className, 'is-icon-text');
-	setIcon(container.createSpan({ cls: 'views-property-value-icon' }), icon);
+	const iconEl = container.createSpan({ cls: 'views-property-value-icon' });
+	const template = iconTemplate(icon);
+	if (template) {
+		iconEl.appendChild(template.cloneNode(true));
+	} else {
+		setIcon(iconEl, icon);
+	}
 	container.createSpan({ cls: 'views-property-value-text', text });
 }
 

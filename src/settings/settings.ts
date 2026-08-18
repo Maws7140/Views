@@ -129,16 +129,31 @@ export function migrateSettings(raw: unknown): { settings: ViewsPluginSettings; 
 /**
  * The single property-id spelling used by every color surface. Note keys are
  * case-insensitive in frontmatter, and a bare key always means a note property.
+ *
+ * Called thousands of times a render across a small closed set of property ids
+ * (a Search or Collection row calls it per property, per cell), so the result
+ * is memoised behind a module-level cache. Property ids are ASCII identifiers,
+ * not user prose, so `toLowerCase` is used instead of the locale-aware variant:
+ * cheaper, and it sidesteps the Turkish dotless-i fold changing an id's casing.
  */
+const normalizedPropertyIdCache = new Map<string, string>();
+
 export function normalizeColorPropertyId(propertyId: string): string {
+	const cached = normalizedPropertyIdCache.get(propertyId);
+	if (cached !== undefined) return cached;
 	const trimmed = propertyId.trim();
-	if (!trimmed) return '';
-	if (/^(?:note|file|formula)\./.test(trimmed)) {
+	let normalized: string;
+	if (!trimmed) {
+		normalized = '';
+	} else if (/^(?:note|file|formula)\./.test(trimmed)) {
 		const [source, ...name] = trimmed.split('.');
 		const rest = name.join('.');
-		return source === 'note' ? `note.${rest.toLocaleLowerCase()}` : `${source}.${rest}`;
+		normalized = source === 'note' ? `note.${rest.toLowerCase()}` : `${source}.${rest}`;
+	} else {
+		normalized = `note.${trimmed.toLowerCase()}`;
 	}
-	return `note.${trimmed.toLocaleLowerCase()}`;
+	normalizedPropertyIdCache.set(propertyId, normalized);
+	return normalized;
 }
 
 /** The seed key an override is stored under: same identity, case-insensitive. */
