@@ -1,5 +1,30 @@
 import type { TimelineItem, TimelineZoomLevel } from '../types';
 
+/**
+ * Floors a timestamp to the start of the period it belongs to at the given
+ * tick level, so a scale origin lands on a real period boundary instead of
+ * an arbitrary instant that pushes the first tick off-canvas.
+ */
+export function floorToPeriodStart(ts: number, level: TimelineZoomLevel): number {
+	const d = new Date(ts);
+	switch (level) {
+		case 'day':
+		case 'week':
+			d.setHours(0, 0, 0, 0);
+			break;
+		case 'month':
+		case 'quarter':
+			d.setDate(1);
+			d.setHours(0, 0, 0, 0);
+			break;
+		case 'year':
+			d.setMonth(0, 1);
+			d.setHours(0, 0, 0, 0);
+			break;
+	}
+	return d.getTime();
+}
+
 export interface DateScale {
 	pxPerDay: number;
 	startTs: number;
@@ -100,5 +125,6 @@ export class BasicDateScale implements DateScale {
 		const computed = viewportWidth / (durationDays + padDays * 2);
 		this.pxPerDay = Math.min(BasicDateScale.MAX_PX_PER_DAY, Math.max(BasicDateScale.MIN_PX_PER_DAY, computed));
 		this.zoomLevel = this.getTickLevel();
+		this.startTs = floorToPeriodStart(this.startTs, this.zoomLevel);
 	}
 }

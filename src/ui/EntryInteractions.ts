@@ -10,7 +10,7 @@ import { App, Keymap, Menu, TFile } from 'obsidian';
  */
 export const DOUBLE_CLICK_DELAY_MS = 350;
 
-const INTERACTIVE_SELECTOR = 'button, input, select, textarea, .mbv-scrollbar';
+const INTERACTIVE_SELECTOR = 'button, input, label, select, textarea, .mbv-scrollbar';
 
 export interface EntryTarget {
 	/** The element the interaction resolved to, used to cancel a pending open. */

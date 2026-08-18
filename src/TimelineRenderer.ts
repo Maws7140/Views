@@ -1,5 +1,5 @@
 import { setIcon, type App, type BasesPropertyId, type Value } from 'obsidian';
-import { BasicDateScale } from './logic/dateScale';
+import { BasicDateScale, floorToPeriodStart } from './logic/dateScale';
 import { virtualizeItems } from './logic/virtualize';
 import { RenderScheduler } from './performance/RenderScheduler';
 import { CollectionScrollbar } from './collection/CollectionScrollbar';
@@ -393,7 +393,7 @@ export class TimelineRenderer {
     }
     if (!Number.isFinite(earliest)) return;
     const leadDays = Math.max(1, (this.viewportWidth() * 0.05) / this.scale.pxPerDay);
-    this.scale.startTs = earliest - leadDays * MS_PER_DAY;
+    this.scale.startTs = floorToPeriodStart(earliest - leadDays * MS_PER_DAY, this.scale.getTickLevel());
     this.scrollAreaEl.scrollLeft = 0;
   }
 
@@ -600,11 +600,19 @@ export class TimelineRenderer {
       this.headerTimeAxisEl.empty();
 
       const ticks = this.generateTicks(range, this.scale.getTickLevel());
-      for (const tick of ticks) {
-        if (tick.position < 0 || tick.position > this.timelineWidth) continue;
+      // Ticks are ordered ascending, so any negative ticks are a leading run.
+      // The last one before x=0 is the period that actually contains the
+      // canvas origin; it gets pinned to the left edge instead of dropped.
+      let leadingIndex = -1;
+      for (let i = 0; i < ticks.length && ticks[i].position < 0; i++) leadingIndex = i;
+      for (let i = 0; i < ticks.length; i++) {
+        const tick = ticks[i];
+        if (tick.position > this.timelineWidth) continue;
+        if (tick.position < 0 && i !== leadingIndex) continue;
         const tickEl = this.headerTimeAxisEl.createDiv({ cls: 'tl-tick' });
         if (tick.isMajor) tickEl.addClass('is-major');
-        tickEl.style.left = `${tick.position}px`;
+        if (tick.position < 0) tickEl.addClass('is-partial');
+        tickEl.style.left = `${Math.max(0, tick.position)}px`;
         tickEl.setText(tick.label);
       }
   }

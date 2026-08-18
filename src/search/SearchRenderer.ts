@@ -1,6 +1,11 @@
 import { setIcon } from 'obsidian';
+import { isInteractiveTarget } from '../ui/EntryInteractions';
 
-export interface RaycastRow {
+// This view was called Raycast before it was renamed to Search. The DOM class
+// prefix stays `mbv-ray-*`: renaming it touches roughly 40 selectors in
+// styles.css for no user-visible gain and risks a missed one.
+
+export interface SearchRow {
 	path: string;
 	title: string;
 	subtitle: string;
@@ -8,13 +13,13 @@ export interface RaycastRow {
 	searchText: string;
 }
 
-export interface RaycastGroup {
+export interface SearchGroup {
 	key: string;
-	rows: RaycastRow[];
+	rows: SearchRow[];
 }
 
-export interface RaycastModel {
-	groups: RaycastGroup[];
+export interface SearchModel {
+	groups: SearchGroup[];
 	showGroupHeadings: boolean;
 	/** Nothing but the search field until something is typed. */
 	launcher: boolean;
@@ -27,7 +32,7 @@ export interface RaycastModel {
 	emptyNotice: string;
 }
 
-export interface RaycastCallbacks {
+export interface SearchCallbacks {
 	open(path: string, newLeaf: boolean): void;
 	create(name: string): void;
 	copyLink(path: string): void;
@@ -36,7 +41,7 @@ export interface RaycastCallbacks {
 	renderProperties(containerEl: HTMLElement, path: string): void;
 }
 
-const EMPTY_MODEL: RaycastModel = {
+const EMPTY_MODEL: SearchModel = {
 	groups: [],
 	showGroupHeadings: false,
 	launcher: false,
@@ -52,19 +57,19 @@ const EMPTY_MODEL: RaycastModel = {
  * are. A field replaced mid-render loses focus and caret position, which in a
  * view whose entire premise is typing would be felt on every keystroke.
  */
-export class RaycastRenderer {
+export class SearchRenderer {
 	private readonly rootEl: HTMLElement;
 	private readonly inputEl: HTMLInputElement;
 	private readonly resultsEl: HTMLElement;
 	private readonly footerEl: HTMLElement;
-	private model: RaycastModel = EMPTY_MODEL;
+	private model: SearchModel = EMPTY_MODEL;
 	private query = '';
 	/** Rows currently on screen, in the order the arrows walk them. */
-	private visible: RaycastRow[] = [];
+	private visible: SearchRow[] = [];
 	private selected = 0;
 	private readonly rowEls = new Map<string, HTMLElement>();
 
-	constructor(containerEl: HTMLElement, private readonly callbacks: RaycastCallbacks) {
+	constructor(containerEl: HTMLElement, private readonly callbacks: SearchCallbacks) {
 		this.rootEl = containerEl.createDiv({ cls: 'mbv-ray' });
 		const searchEl = this.rootEl.createDiv({ cls: 'mbv-ray-search' });
 		setIcon(searchEl.createSpan({ cls: 'mbv-ray-search-icon' }), 'lucide-search');
@@ -82,6 +87,7 @@ export class RaycastRenderer {
 		});
 		this.inputEl.addEventListener('keydown', (event) => this.handleKey(event));
 		this.resultsEl.addEventListener('click', (event) => {
+			if (isInteractiveTarget(event)) return;
 			const rowEl = event.target instanceof Element ? event.target.closest<HTMLElement>('.mbv-ray-row') : null;
 			const path = rowEl?.dataset.path;
 			if (!path) return;
@@ -96,7 +102,7 @@ export class RaycastRenderer {
 		});
 	}
 
-	update(model: RaycastModel): void {
+	update(model: SearchModel): void {
 		this.model = model;
 		this.inputEl.placeholder = model.placeholder;
 		// The column count drives the grid, and every row is a subgrid of it, so a
@@ -241,7 +247,7 @@ export class RaycastRenderer {
 		this.renderFooter();
 	}
 
-	private renderRow(row: RaycastRow): void {
+	private renderRow(row: SearchRow): void {
 		const rowEl = this.resultsEl.createDiv({ cls: 'mbv-ray-row' });
 		rowEl.dataset.path = row.path;
 		const mainEl = rowEl.createDiv({ cls: 'mbv-ray-row-main' });

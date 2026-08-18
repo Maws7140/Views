@@ -3,6 +3,7 @@ import {
 	BasesEntryGroup,
 	BasesPropertyId,
 	BasesView,
+	DropdownOption,
 	Keymap,
 	Menu,
 	QueryController,
@@ -28,6 +29,7 @@ import { ColorAssigner, ColorPackId, resolveColorPalette } from './table-colors/
 import { isPropertyColorEnabled } from './settings/settings';
 import { renderPropertyValue } from './ui/PropertyValueRenderer';
 import { isInteractiveTarget, showFileMenu } from './ui/EntryInteractions';
+import { writeBooleanProperty } from './ui/writeBooleanProperty';
 import { CollectionScrollbar, ScrollbarOrientation } from './collection/CollectionScrollbar';
 import { reportPerformance } from './performance/metrics';
 import type ViewsPlugin from './main';
@@ -38,6 +40,7 @@ type CollectionLayout = 'carousel' | 'grid';
 type CardAspect = 'flexible' | 'square';
 type CardDirection = 'vertical' | 'image-left' | 'image-right';
 type MediaFit = 'smart' | 'contain' | 'cover';
+type CardHeightMode = 'fixed' | 'fit';
 type IconPlacement = 'automatic' | 'preview' | 'title';
 type CardCorners = 'rounded' | 'square';
 
@@ -50,6 +53,7 @@ interface CollectionConfig extends CollectionAppearanceConfig {
 	aspect: CardAspect;
 	cardDirection: CardDirection;
 	cardHeight: number;
+	cardHeightMode: CardHeightMode;
 	mediaShare: number;
 	mediaFit: MediaFit;
 	snap: boolean;
@@ -184,6 +188,14 @@ export class CollectionView extends BasesView {
 						// it is not yet declared in the public type definitions.
 						shouldHide: (config: { get(key: string): unknown }) => config.get('aspect') === 'square',
 					} as SliderOption & { shouldHide(config: { get(key: string): unknown }): boolean },
+					{
+						type: 'dropdown',
+						key: 'cardHeightMode',
+						displayName: 'Row height',
+						default: 'fixed',
+						options: { fixed: 'Fixed, scrolls', fit: 'Fit tallest card' },
+						shouldHide: (config: { get(key: string): unknown }) => config.get('aspect') === 'square',
+					} as DropdownOption & { shouldHide(config: { get(key: string): unknown }): boolean },
 					{
 						type: 'slider',
 						key: 'gap',
@@ -411,6 +423,7 @@ export class CollectionView extends BasesView {
 		const folderIconSource = this.config.get('folderIconSource');
 		const iconPlacement = this.config.get('iconPlacement');
 		const cardCorners = this.config.get('cardCorners');
+		const cardHeightMode = this.config.get('cardHeightMode');
 		return {
 			layout: layout === 'grid' ? 'grid' : 'carousel',
 			mediaProperty: this.config.getAsPropertyId('mediaProperty'),
@@ -422,6 +435,7 @@ export class CollectionView extends BasesView {
 			aspect: aspect === 'square' ? 'square' : 'flexible',
 			cardDirection: this.cardDirection(cardDirection),
 			cardHeight: this.numberOption('cardHeight', 160, 48, 960),
+			cardHeightMode: cardHeightMode === 'fit' ? 'fit' : 'fixed',
 			mediaShare: this.numberOption('mediaShare', 50, 0, 100),
 			mediaFit: mediaFit === 'contain' || mediaFit === 'cover' ? mediaFit : 'smart',
 			snap: this.config.get('snap') !== false,
@@ -544,6 +558,7 @@ export class CollectionView extends BasesView {
 		this.containerEl.toggleClass('has-snap', config.snap);
 		this.containerEl.toggleClass('is-square', config.aspect === 'square');
 		this.containerEl.toggleClass('uses-independent-height', config.aspect !== 'square');
+		this.containerEl.toggleClass('is-fit-height', config.aspect !== 'square' && config.cardHeightMode === 'fit');
 		this.containerEl.toggleClass('is-horizontal', config.cardDirection !== 'vertical');
 		this.containerEl.toggleClass('is-image-right', config.cardDirection === 'image-right');
 		this.containerEl.toggleClass('media-fit-smart', config.mediaFit === 'smart');
@@ -566,7 +581,7 @@ export class CollectionView extends BasesView {
 	}
 
 	private renderSignature(config: CollectionConfig): string {
-		const styleKeys = new Set(['cardWidth', 'gap', 'cardHeight', 'mediaShare', 'cardCorners', 'snap', 'aspect', 'cardDirection', 'mediaFit']);
+		const styleKeys = new Set(['cardWidth', 'gap', 'cardHeight', 'cardHeightMode', 'mediaShare', 'cardCorners', 'snap', 'aspect', 'cardDirection', 'mediaFit']);
 		const structuralConfig = Object.fromEntries(Object.entries(config)
 			.filter(([key]) => !styleKeys.has(key))
 			.map(([key, value]) => [key, value instanceof Map ? Array.from(value.entries()) : value]));
@@ -833,6 +848,11 @@ export class CollectionView extends BasesView {
 		if (iconBesideTitle) renderCollectionIcon(headingEl.createSpan({ cls: 'mbv-card-icon' }), icons, this.app);
 		headingEl.createDiv({ cls: 'mbv-card-title', text: title });
 		this.renderDetails(bodyEl, entry, context);
+		// Fit mode never caps the body, so it never scrolls; only worth the
+		// layout read when the body is actually capped.
+		if (config.cardHeightMode !== 'fit') {
+			bodyEl.toggleClass('is-scrollable', bodyEl.scrollHeight > bodyEl.clientHeight + 1);
+		}
 
 		return cardEl;
 	}
@@ -1081,27 +1101,10 @@ export class CollectionView extends BasesView {
 				valueColorPalette: propertyColorsEnabled ? context.valuePalette : undefined,
 				valueColors: propertyColorsEnabled ? context.valueColors : undefined,
 				onBooleanChange: property.startsWith('note.')
-					? (checked) => this.updateBooleanProperty(entry, property, checked)
+					? (checked) => writeBooleanProperty(this.app, entry, property, checked)
 					: undefined,
 			});
 		}
-	}
-
-	private async updateBooleanProperty(
-		entry: BasesEntry,
-		property: BasesPropertyId,
-		checked: boolean,
-	): Promise<void> {
-		if (!property.startsWith('note.')) throw new Error('Only note properties can be edited.');
-		const file = this.app.vault.getAbstractFileByPath(entry.file.path);
-		if (!(file instanceof TFile)) throw new Error('The note is no longer available.');
-		const propertyName = property.slice('note.'.length);
-		if (!propertyName) throw new Error('The property name is empty.');
-		await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
-			const existingKey = Object.keys(frontmatter)
-				.find((key) => key.toLocaleLowerCase() === propertyName.toLocaleLowerCase());
-			frontmatter[existingKey ?? propertyName] = checked;
-		});
 	}
 
 	private renderMedia(mediaEl: HTMLElement, entry: BasesEntry, resource: string | null): void {

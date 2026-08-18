@@ -2,24 +2,29 @@ import {
 	BasesEntry,
 	BasesPropertyId,
 	BasesView,
+	BooleanValue,
 	Notice,
 	QueryController,
 	TFile,
 	ViewOption,
 } from 'obsidian';
 import {
-	RaycastRenderer,
-	type RaycastGroup,
-	type RaycastModel,
-	type RaycastRow,
-} from './raycast/RaycastRenderer';
+	SearchRenderer,
+	type SearchGroup,
+	type SearchModel,
+	type SearchRow,
+} from './search/SearchRenderer';
 import { isPropertyColorEnabled } from './settings/settings';
 import { ColorAssigner, parseCustomPalette, resolveColorPalette } from './table-colors/palettes';
 import { renderPropertyValue } from './ui/PropertyValueRenderer';
 import { showFileMenu } from './ui/EntryInteractions';
+import { writeBooleanProperty } from './ui/writeBooleanProperty';
 import type ViewsPlugin from './main';
 
-export const RaycastViewType = 'more-bases-raycast';
+// This view was called Raycast before it was renamed to Search. The wire
+// value has to stay 'more-bases-raycast' forever: it is written into every
+// .base file that already uses this view, and changing it would orphan them.
+export const SearchViewType = 'more-bases-raycast';
 
 /**
  * Revealing a file is the file explorer's own job and is not in the public API,
@@ -33,10 +38,10 @@ interface AppWithInternalPlugins {
 	internalPlugins?: { getEnabledPluginById(id: string): unknown };
 }
 
-export class RaycastView extends BasesView {
-	type = RaycastViewType;
+export class SearchView extends BasesView {
+	type = SearchViewType;
 	private readonly containerEl: HTMLElement;
-	private readonly renderer: RaycastRenderer;
+	private readonly renderer: SearchRenderer;
 	private readonly entriesByPath = new Map<string, BasesEntry>();
 	/** Rebuilt per render, so two values of a property never share a color. */
 	private colors: ColorAssigner | null = null;
@@ -48,7 +53,7 @@ export class RaycastView extends BasesView {
 	) {
 		super(controller);
 		this.containerEl = scrollEl.createDiv({ cls: 'mbv-raycast-host' });
-		this.renderer = new RaycastRenderer(this.containerEl, {
+		this.renderer = new SearchRenderer(this.containerEl, {
 			open: (path, newLeaf) => this.openPath(path, newLeaf),
 			create: (name) => void this.createNote(name),
 			copyLink: (path) => void this.copyLink(path),
@@ -65,7 +70,7 @@ export class RaycastView extends BasesView {
 	static getViewOptions(): ViewOption[] {
 		return [
 			{
-				displayName: 'Raycast',
+				displayName: 'Search',
 				type: 'group',
 				items: [
 					{
@@ -86,7 +91,7 @@ export class RaycastView extends BasesView {
 						type: 'dropdown',
 						key: 'searchScope',
 						default: 'all',
-						options: { all: 'Title and properties', title: 'Title only' },
+						options: { all: 'Everything', title: 'Name and title only' },
 					},
 					{
 						// The spec's "search bar only": the field and nothing under it
@@ -132,15 +137,15 @@ export class RaycastView extends BasesView {
 		this.renderer.update(this.buildModel());
 	}
 
-	private buildModel(): RaycastModel {
+	private buildModel(): SearchModel {
 		this.entriesByPath.clear();
 		const titleProp = this.config.getAsPropertyId('titleProperty');
 		const subtitle = this.stringConfig('subtitle', 'folder');
 		const searchProperties = this.stringConfig('searchScope', 'all') !== 'title';
 		const properties = this.displayProperties();
-		const groups: RaycastGroup[] = [];
+		const groups: SearchGroup[] = [];
 		for (const group of this.data?.groupedData ?? []) {
-			const rows: RaycastRow[] = [];
+			const rows: SearchRow[] = [];
 			for (const entry of group.entries) {
 				this.entriesByPath.set(entry.file.path, entry);
 				rows.push(this.buildRow(entry, titleProp, subtitle, searchProperties, properties));
@@ -165,13 +170,16 @@ export class RaycastView extends BasesView {
 		subtitle: string,
 		searchProperties: boolean,
 		properties: BasesPropertyId[],
-	): RaycastRow {
+	): SearchRow {
 		const title = (titleProp ? entry.getValue(titleProp)?.toString().trim() : '')
 			|| entry.file.basename;
 		const folder = entry.file.parent?.path ?? '';
-		const terms = [title, folder];
-		// Matched against what the row actually shows, plus the folder, so a search
-		// answers what is on screen rather than the whole note.
+		// Identity fields are not a display concern, so they are matched
+		// unconditionally: file name and path stay searchable even when Title
+		// points at a different property or file.name is off the property list.
+		const terms = [...new Set([title, entry.file.basename, entry.file.name, entry.file.path])];
+		// Matched against what the row actually shows, plus the identity fields
+		// above, so a search answers what is on screen and what the file is.
 		if (searchProperties) {
 			for (const property of properties) {
 				const value = entry.getValue(property)?.toString();
@@ -208,7 +216,10 @@ export class RaycastView extends BasesView {
 			const valueEl = rowEl.createDiv({ cls: 'mbv-ray-prop' });
 			const value = entry.getValue(property);
 			if (value === null || value === undefined) continue;
-			if (!value.toString().trim()) continue;
+			const isBoolean = value instanceof BooleanValue;
+			// An unset boolean is still a real checkbox to click, not a value to
+			// skip the way a blank text or date property is.
+			if (!isBoolean && !value.toString().trim()) continue;
 			renderPropertyValue(valueEl, value, {
 				app: this.app,
 				property,
@@ -218,6 +229,9 @@ export class RaycastView extends BasesView {
 					: undefined,
 				valueColors: isPropertyColorEnabled(this.plugin.settings, property)
 					? this.colors ?? undefined
+					: undefined,
+				onBooleanChange: property.startsWith('note.')
+					? (checked) => writeBooleanProperty(this.app, entry, property, checked)
 					: undefined,
 			});
 		}

@@ -302,6 +302,12 @@
   background-color: var(--background-modifier-border-hover);
 }
 
+/* Pinned to x=0 when its real position is off the left edge of the canvas,
+   so it reads as a partial period rather than a gridline at day zero. */
+.tl-tick.is-partial::before {
+  display: none;
+}
+
 /* Bars and Dots. The bar is the pill surface at span scale, so a value tints
    a bar exactly as it tints a table cell or a Collection chip. */
 .tl-bar,
@@ -1616,19 +1622,18 @@
   container-type: inline-size;
 }
 
-/* Card height is a floor, not a ceiling. Pinning block-size, min and max
-   together meant a card with one property too many simply lost it: the body
-   scrolls, but nothing says so until you hover, so it read as clipped. Rows are
-   grid rows, so a taller card lifts its whole row and the grid stays aligned.
-   A horizontal strip keeps the fixed height, where a single row is the point. */
+/* Cards are capped to a row height by default, same as every other mode, so
+   one long title cannot lift its whole grid row and strand its siblings
+   (`.mbv-rail` is `align-items: start`, so an uncapped card is never stretched
+   back down to match). The body scrolls instead; `.is-scrollable` (set by
+   CollectionView once it knows the body actually overflows) paints the fade
+   and thin scrollbar that say so. "Fit tallest card" below is the deliberate
+   exception: it opts into `align-items: stretch` at the same time, so growth
+   lifts the row instead of just the one card. */
 .mbv-collection.uses-independent-height .mbv-card {
   box-sizing: border-box;
-  block-size: auto;
-  min-block-size: var(--mbv-card-height);
-}
-
-.mbv-collection.uses-independent-height.is-horizontal .mbv-card {
   block-size: var(--mbv-card-height);
+  min-block-size: var(--mbv-card-height);
   max-block-size: var(--mbv-card-height);
 }
 
@@ -1639,25 +1644,60 @@
   aspect-ratio: auto;
 }
 
-/* Once the card grows, its height is indefinite and a percentage has nothing to
-   resolve against, so the media takes the same share as a real length. */
-.mbv-collection.uses-independent-height:not(.is-horizontal) .mbv-card.has-media .mbv-card-media {
-  flex: 0 0 var(--mbv-media-height);
-  block-size: var(--mbv-media-height);
-}
-
 .mbv-collection .mbv-card .mbv-card-body {
   flex: 1 1 0;
   max-height: none;
   overflow-x: hidden;
   overflow-y: auto;
+  scrollbar-width: thin;
+  position: relative;
 }
 
-/* A growing card has room for everything, so the body scrolls only in the modes
-   that still cap the height: square, and the horizontal strip. */
-.mbv-collection.uses-independent-height:not(.is-horizontal) .mbv-card .mbv-card-body {
+.mbv-collection .mbv-card .mbv-card-body.is-scrollable::after {
+  content: "";
+  position: sticky;
+  display: block;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 20px;
+  margin-top: -20px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--background-secondary));
+}
+
+.mbv-collection.has-card-color .mbv-card.has-card-color .mbv-card-body.is-scrollable::after {
+  background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--mbv-card-color) 11%, var(--background-secondary)));
+}
+
+/* Fit tallest card: the row grows to its tallest member instead of capping
+   and scrolling. `align-items: stretch` only lives here, guarded to this
+   mode, because paired with the default cap it is exactly the regression
+   that let one tall card outgrow and strand a row (`is-fit-height` is only
+   set when `cardHeightMode` is `fit`). */
+.mbv-collection.is-fit-height .mbv-rail {
+  align-items: stretch;
+}
+
+.mbv-collection.is-fit-height .mbv-card {
+  block-size: auto;
+  min-block-size: var(--mbv-card-height);
+  max-block-size: none;
+  /* content-visibility's intrinsic size otherwise pins the card back to a
+     fixed height, laying the grid out against a size the card no longer has. */
+  contain-intrinsic-size: auto var(--mbv-card-width) auto var(--mbv-card-height);
+}
+
+.mbv-collection.is-fit-height .mbv-card .mbv-card-body {
   flex: 1 1 auto;
   overflow-y: visible;
+}
+
+/* Once the card grows, its height is indefinite and a percentage has nothing to
+   resolve against, so the media takes the same share as a real length. */
+.mbv-collection.is-fit-height:not(.is-horizontal) .mbv-card.has-media .mbv-card-media {
+  flex: 0 0 var(--mbv-media-height);
+  block-size: var(--mbv-media-height);
 }
 
 .mbv-collection.is-square:not(.is-horizontal) .mbv-card {

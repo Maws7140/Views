@@ -2,7 +2,7 @@ import { CalendarView, CalendarViewType } from '../CalendarView';
 import { CollectionView, CollectionViewType } from '../CollectionView';
 import { HeatmapView, HeatmapViewType } from '../HeatmapView';
 import { KanbanView, KanbanViewType } from '../KanbanView';
-import { RaycastView, RaycastViewType } from '../RaycastView';
+import { SearchView, SearchViewType } from '../SearchView';
 import { TimelineView, TimelineViewType } from '../TimelineView';
 import type ViewsPlugin from '../main';
 
@@ -46,11 +46,11 @@ export const VIEW_DEFINITIONS: readonly ViewDefinition[] = [
 		}),
 	},
 	{
-		register: (plugin) => plugin.registerBasesView(RaycastViewType, {
-			name: 'Views · Raycast',
+		register: (plugin) => plugin.registerBasesView(SearchViewType, {
+			name: 'Views · Search',
 			icon: 'lucide-search',
-			factory: (controller, containerEl) => new RaycastView(plugin, controller, containerEl),
-			options: RaycastView.getViewOptions,
+			factory: (controller, containerEl) => new SearchView(plugin, controller, containerEl),
+			options: SearchView.getViewOptions,
 		}),
 	},
 	{
