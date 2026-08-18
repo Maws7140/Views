@@ -77,6 +77,7 @@ export interface KanbanRendererCallbacks {
 	resolveCard: (cardId: string, laneKey: string) => KanbanCard | null;
 	onDrop?: (target: KanbanDropTarget) => Promise<void> | void;
 	onColumnReorder?: (order: string[]) => void;
+	onSwimlaneReorder?: (order: string[]) => void;
 	onLaneToggle?: (laneKey: string, collapsed: boolean) => void;
 }
 
@@ -96,6 +97,7 @@ export class KanbanRenderer {
 	private scrollbars: CollectionScrollbar[] = [];
 	private readonly collapsedLanes = new Set<string>();
 	private dragState: DragState | null = null;
+	private suppressLaneClick = false;
 	private autoScrollFrame: number | null = null;
 	private readonly revealed = new Map<string, number>();
 	private revealObserver!: IntersectionObserver;
@@ -326,6 +328,9 @@ export class KanbanRenderer {
 		const target = event.target as HTMLElement | null;
 		const laneHead = target?.closest<HTMLElement>('.mbv-kanban-lane-head');
 		if (laneHead?.dataset.lane) {
+			// A lane drag ends with a pointerup over this same header, which
+			// would otherwise read as the click that toggles collapse.
+			if (this.suppressLaneClick) return;
 			const laneKey = laneHead.dataset.lane;
 			const collapsed = !this.collapsedLanes.has(laneKey);
 			if (collapsed) this.collapsedLanes.add(laneKey);
@@ -337,19 +342,60 @@ export class KanbanRenderer {
 		// Opening a card is handled by the shared EntryInteractions controller.
 	};
 
-	/** True while a card is actually being dragged, not merely pressed. */
+	/** True while anything is actually being dragged, not merely pressed. */
 	isDragging(): boolean {
 		return this.dragState?.moved === true;
 	}
 
 	private readonly handlePointerDown = (event: PointerEvent): void => {
-		if (event.button !== 0 || !this.model?.canDrag) return;
+		if (event.button !== 0) return;
 		const target = event.target as HTMLElement | null;
 		if (target?.closest('a, input, .mbv-scrollbar')) return;
+
+		// The whole header starts the drag. A click only becomes a drag once the
+		// pointer passes DRAG_THRESHOLD, so the lane header's collapse toggle
+		// still fires on a plain click.
+		const columnHead = target?.closest<HTMLElement>('.mbv-kanban-column-head');
+		if (columnHead) {
+			const key = columnHead.dataset.column;
+			if (!key || !this.model) return;
+			this.dragState = {
+				kind: 'column',
+				key,
+				order: this.model.columns.map((column) => column.key),
+				startX: event.clientX,
+				startY: event.clientY,
+				moved: false,
+				ghostEl: null,
+				pointerId: event.pointerId,
+			};
+			this.attachDragListeners();
+			return;
+		}
+
+		const laneHead = target?.closest<HTMLElement>('.mbv-kanban-lane-head');
+		if (laneHead) {
+			const key = laneHead.dataset.lane;
+			if (!key || !this.model) return;
+			this.dragState = {
+				kind: 'lane',
+				key,
+				order: this.model.lanes.map((lane) => lane.key),
+				startX: event.clientX,
+				startY: event.clientY,
+				moved: false,
+				ghostEl: null,
+				pointerId: event.pointerId,
+			};
+			this.attachDragListeners();
+			return;
+		}
+
+		if (!this.model?.canDrag) return;
 		const cardEl = target?.closest<HTMLElement>('.mbv-kanban-card');
 		if (!cardEl?.dataset.id) return;
-
 		this.dragState = {
+			kind: 'card',
 			cardId: cardEl.dataset.id,
 			cardEl,
 			startX: event.clientX,
@@ -358,10 +404,14 @@ export class KanbanRenderer {
 			ghostEl: null,
 			pointerId: event.pointerId,
 		};
+		this.attachDragListeners();
+	};
+
+	private attachDragListeners(): void {
 		window.addEventListener('pointermove', this.handlePointerMove);
 		window.addEventListener('pointerup', this.handlePointerUp);
 		window.addEventListener('pointercancel', this.handlePointerUp);
-	};
+	}
 
 	private readonly handlePointerMove = (event: PointerEvent): void => {
 		const state = this.dragState;
@@ -376,7 +426,9 @@ export class KanbanRenderer {
 		if (state.ghostEl) {
 			state.ghostEl.style.transform = `translate(${event.clientX + 8}px, ${event.clientY + 8}px)`;
 		}
-		this.updateDropTarget(event.clientX, event.clientY);
+		if (state.kind === 'card') this.updateCardDropMarker(event.clientX, event.clientY);
+		else if (state.kind === 'column') this.updateColumnDropMarker(state.key, event.clientX);
+		else this.updateLaneDropMarker(state.key, event.clientY);
 		this.queueAutoScroll(event.clientX, event.clientY);
 	};
 
@@ -391,30 +443,71 @@ export class KanbanRenderer {
 		if (!state.moved) return;
 
 		state.ghostEl?.remove();
-		state.cardEl.removeClass('is-dragging');
 		this.rootEl.removeClass('is-dragging');
-		const drop = this.resolveDropTarget(event.clientX, event.clientY);
 		this.clearDropMarkers();
-		if (!drop) return;
-		void this.callbacks.onDrop?.({ cardId: state.cardId, ...drop });
-		// The card element is torn down by the next data update, so the moved
-		// flag is cleared on the next frame instead of on click.
-		window.setTimeout(() => { if (this.dragState === null) state.moved = false; }, 0);
+
+		if (state.kind === 'card') {
+			state.cardEl.removeClass('is-dragging');
+			const drop = this.resolveCardDropTarget(event.clientX, event.clientY);
+			if (drop) void this.callbacks.onDrop?.({ cardId: state.cardId, ...drop });
+			// The card element is torn down by the next data update, so the moved
+			// flag is cleared on the next frame instead of on click.
+			window.setTimeout(() => { if (this.dragState === null) state.moved = false; }, 0);
+			return;
+		}
+
+		if (state.kind === 'column') {
+			this.columnHeadElement(state.key)?.removeClass('is-dragging');
+			const index = this.resolveColumnDropIndex(state.key, event.clientX);
+			const order = state.order.filter((key) => key !== state.key);
+			order.splice(index, 0, state.key);
+			this.callbacks.onColumnReorder?.(order);
+			return;
+		}
+
+		this.laneHeadElement(state.key)?.removeClass('is-dragging');
+		const index = this.resolveLaneDropIndex(state.key, event.clientY);
+		const order = state.order.filter((key) => key !== state.key);
+		order.splice(index, 0, state.key);
+		this.callbacks.onSwimlaneReorder?.(order);
+		// The pointerup that ends a lane drag is followed by a click on the same
+		// header, which would otherwise toggle the lane it was just dropped on.
+		this.suppressLaneClick = true;
+		window.setTimeout(() => { this.suppressLaneClick = false; }, 0);
 	};
 
 	private beginDrag(state: DragState): void {
 		this.rootEl.addClass('is-dragging');
-		state.cardEl.addClass('is-dragging');
-		const rect = state.cardEl.getBoundingClientRect();
-		const ghost = document.body.createDiv({ cls: 'mbv-kanban-ghost' });
-		ghost.style.width = `${rect.width}px`;
-		ghost.appendChild(state.cardEl.cloneNode(true));
-		state.ghostEl = ghost;
+		if (state.kind === 'card') {
+			state.cardEl.addClass('is-dragging');
+			state.ghostEl = this.createGhost(state.cardEl);
+			return;
+		}
+		if (state.kind === 'column') {
+			const headEl = this.columnHeadElement(state.key);
+			if (!headEl) return;
+			headEl.addClass('is-dragging');
+			state.ghostEl = this.createGhost(headEl, 'mbv-kanban-ghost-column');
+			return;
+		}
+		const headEl = this.laneHeadElement(state.key);
+		if (!headEl) return;
+		headEl.addClass('is-dragging');
+		state.ghostEl = this.createGhost(headEl, 'mbv-kanban-ghost-lane');
 	}
 
-	private updateDropTarget(clientX: number, clientY: number): void {
+	/** Shared by the card, column, and lane drags: a floating clone that follows the pointer. */
+	private createGhost(sourceEl: HTMLElement, extraClass?: string): HTMLElement {
+		const rect = sourceEl.getBoundingClientRect();
+		const ghost = document.body.createDiv({ cls: extraClass ? `mbv-kanban-ghost ${extraClass}` : 'mbv-kanban-ghost' });
+		ghost.style.width = `${rect.width}px`;
+		ghost.appendChild(sourceEl.cloneNode(true));
+		return ghost;
+	}
+
+	private updateCardDropMarker(clientX: number, clientY: number): void {
 		this.clearDropMarkers();
-		const drop = this.resolveDropTarget(clientX, clientY);
+		const drop = this.resolveCardDropTarget(clientX, clientY);
 		if (!drop) return;
 		const cellEl = this.cellElement(drop.columnKey, drop.laneKey);
 		if (!cellEl) return;
@@ -425,7 +518,7 @@ export class KanbanRenderer {
 		cellEl.insertBefore(marker, reference);
 	}
 
-	private resolveDropTarget(clientX: number, clientY: number): Omit<KanbanDropTarget, 'cardId'> | null {
+	private resolveCardDropTarget(clientX: number, clientY: number): Omit<KanbanDropTarget, 'cardId'> | null {
 		const element = document.elementFromPoint(clientX, clientY);
 		const cellEl = element instanceof Element ? element.closest<HTMLElement>('.mbv-kanban-cell') : null;
 		if (!cellEl || !this.rootEl.contains(cellEl)) return null;
@@ -444,6 +537,60 @@ export class KanbanRenderer {
 		return { columnKey, laneKey, index };
 	}
 
+	/** Columns reorder along the inline axis, so the marker is a vertical bar in the header row. */
+	private updateColumnDropMarker(draggedKey: string, clientX: number): void {
+		this.clearDropMarkers();
+		const heads = this.columnHeadElements(draggedKey);
+		const index = this.resolveColumnDropIndex(draggedKey, clientX);
+		const marker = createDiv({ cls: 'mbv-kanban-drop-marker is-column' });
+		this.headerEl.insertBefore(marker, heads[index] ?? null);
+	}
+
+	private resolveColumnDropIndex(draggedKey: string, clientX: number): number {
+		const heads = this.columnHeadElements(draggedKey);
+		for (let index = 0; index < heads.length; index += 1) {
+			const rect = heads[index].getBoundingClientRect();
+			if (clientX < rect.left + rect.width / 2) return index;
+		}
+		return heads.length;
+	}
+
+	/** Swimlanes reorder along the block axis, so the marker is a horizontal bar in the body. */
+	private updateLaneDropMarker(draggedKey: string, clientY: number): void {
+		this.clearDropMarkers();
+		const heads = this.laneHeadElements(draggedKey);
+		const index = this.resolveLaneDropIndex(draggedKey, clientY);
+		const marker = createDiv({ cls: 'mbv-kanban-drop-marker is-lane' });
+		this.bodyEl.insertBefore(marker, heads[index] ?? null);
+	}
+
+	private resolveLaneDropIndex(draggedKey: string, clientY: number): number {
+		const heads = this.laneHeadElements(draggedKey);
+		for (let index = 0; index < heads.length; index += 1) {
+			const rect = heads[index].getBoundingClientRect();
+			if (clientY < rect.top + rect.height / 2) return index;
+		}
+		return heads.length;
+	}
+
+	private columnHeadElements(excludingKey?: string): HTMLElement[] {
+		return Array.from(this.headerEl.querySelectorAll<HTMLElement>('.mbv-kanban-column-head'))
+			.filter((el) => el.dataset.column !== excludingKey);
+	}
+
+	private laneHeadElements(excludingKey?: string): HTMLElement[] {
+		return Array.from(this.bodyEl.querySelectorAll<HTMLElement>('.mbv-kanban-lane-head'))
+			.filter((el) => el.dataset.lane !== excludingKey);
+	}
+
+	private columnHeadElement(key: string): HTMLElement | null {
+		return this.headerEl.querySelector<HTMLElement>(`.mbv-kanban-column-head[data-column="${CSS.escape(key)}"]`);
+	}
+
+	private laneHeadElement(key: string): HTMLElement | null {
+		return this.bodyEl.querySelector<HTMLElement>(`.mbv-kanban-lane-head[data-lane="${CSS.escape(key)}"]`);
+	}
+
 	private cellElement(columnKey: string, laneKey: string): HTMLElement | null {
 		return this.bodyEl.querySelector<HTMLElement>(
 			`.mbv-kanban-cell[data-column="${CSS.escape(columnKey)}"][data-lane="${CSS.escape(laneKey)}"]`,
@@ -451,6 +598,7 @@ export class KanbanRenderer {
 	}
 
 	private clearDropMarkers(): void {
+		this.headerEl.querySelectorAll('.mbv-kanban-drop-marker').forEach((marker) => marker.remove());
 		this.bodyEl.querySelectorAll('.mbv-kanban-drop-marker').forEach((marker) => marker.remove());
 		this.bodyEl.querySelectorAll('.is-drop-target').forEach((cell) => cell.removeClass('is-drop-target'));
 	}
@@ -484,7 +632,8 @@ export class KanbanRenderer {
 	}
 }
 
-interface DragState {
+interface CardDragState {
+	kind: 'card';
 	cardId: string;
 	cardEl: HTMLElement;
 	startX: number;
@@ -493,3 +642,31 @@ interface DragState {
 	ghostEl: HTMLElement | null;
 	pointerId: number;
 }
+
+interface ColumnDragState {
+	kind: 'column';
+	/** The column key being dragged. */
+	key: string;
+	/** Column key order at drag start, reordered on drop and handed back whole. */
+	order: string[];
+	startX: number;
+	startY: number;
+	moved: boolean;
+	ghostEl: HTMLElement | null;
+	pointerId: number;
+}
+
+interface LaneDragState {
+	kind: 'lane';
+	/** The swimlane key being dragged. */
+	key: string;
+	/** Swimlane key order at drag start, reordered on drop and handed back whole. */
+	order: string[];
+	startX: number;
+	startY: number;
+	moved: boolean;
+	ghostEl: HTMLElement | null;
+	pointerId: number;
+}
+
+type DragState = CardDragState | ColumnDragState | LaneDragState;

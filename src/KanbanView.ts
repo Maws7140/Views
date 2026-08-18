@@ -91,6 +91,7 @@ export class KanbanView extends BasesView {
 			resolveCard: (cardId, laneKey) => this.resolveCard(cardId, laneKey),
 			onDrop: (target) => this.handleDrop(target),
 			onColumnReorder: (order) => this.persistColumnOrder(order),
+			onSwimlaneReorder: (order) => this.persistSwimlaneOrder(order),
 			onLaneToggle: (laneKey, collapsed) => this.persistLaneCollapse(laneKey, collapsed),
 		});
 		// Registered here rather than in onload, the same way the Collection view
@@ -140,6 +141,7 @@ export class KanbanView extends BasesView {
 							name: 'Name, A to Z',
 							'name-desc': 'Name, Z to A',
 							count: 'Most cards first',
+							manual: 'Manual order',
 						},
 					},
 					{
@@ -512,6 +514,17 @@ export class KanbanView extends BasesView {
 
 	private persistColumnOrder(order: string[]): void {
 		this.config.set('columnOrder', order);
+	}
+
+	/**
+	 * A dragged swimlane also flips the sort mode to manual, or the next data
+	 * update would re-sort by name or count and silently undo the drag.
+	 */
+	private persistSwimlaneOrder(order: string[]): void {
+		this.config.set('swimlaneOrder', order);
+		if (this.config.get('swimlaneSort') !== 'manual') {
+			this.config.set('swimlaneSort', 'manual');
+		}
 	}
 
 	private numberOption(key: string, fallback: number): number {

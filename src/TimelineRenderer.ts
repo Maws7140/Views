@@ -141,6 +141,8 @@ export class TimelineRenderer {
   private renderedAxisKey = '';
   private contentHeight = 0;
   private pendingScrollLeft: number | null = null;
+  /** Live baseline for an in-progress canvas pan; null when nothing is panning. */
+  private panStartScrollLeft: number | null = null;
   private createdThisFrame = 0;
   private axisRebuiltThisFrame = 0;
   private scrollbars: CollectionScrollbar[] = [];
@@ -184,8 +186,13 @@ export class TimelineRenderer {
     const floorTs = earliest - LEADING_PAD_DAYS * MS_PER_DAY;
     if (this.scale.startTs <= floorTs) return false;
     const deltaTs = Math.min(this.scale.startTs - floorTs, viewportMs);
+    const deltaPx = (deltaTs / MS_PER_DAY) * this.scale.pxPerDay;
     this.scale.startTs -= deltaTs;
-    this.pendingScrollLeft = this.scrollAreaEl.scrollLeft + (deltaTs / MS_PER_DAY) * this.scale.pxPerDay;
+    this.pendingScrollLeft = this.scrollAreaEl.scrollLeft + deltaPx;
+    // A pan drag in progress captured its own baseline scrollLeft; without
+    // this it stays stale and the next pointermove fights the extension,
+    // snapping the content back under the cursor.
+    if (this.panStartScrollLeft !== null) this.panStartScrollLeft += deltaPx;
     this.render(false);
     return true;
   }
@@ -299,14 +306,20 @@ export class TimelineRenderer {
         panning = true;
         this.scrollAreaEl.setPointerCapture(moveEvent.pointerId);
         this.rootEl.addClass('is-panning');
+        // Reaching the left edge mid-drag walks scale.startTs back and moves
+        // scrollLeft to compensate; extendPastIfNeeded keeps this in sync so
+        // the next move here does not recompute from a stale baseline.
+        this.panStartScrollLeft = startScrollLeft;
       }
-      this.scrollAreaEl.scrollLeft = startScrollLeft - dx;
+      const base = this.panStartScrollLeft ?? startScrollLeft;
+      this.scrollAreaEl.scrollLeft = base - dx;
       this.scrollAreaEl.scrollTop = startScrollTop - dy;
     };
     const end = (endEvent: PointerEvent) => {
       this.scrollAreaEl.removeEventListener('pointermove', move);
       this.scrollAreaEl.removeEventListener('pointerup', end);
       this.scrollAreaEl.removeEventListener('pointercancel', end);
+      this.panStartScrollLeft = null;
       if (panning) {
         this.scrollAreaEl.releasePointerCapture(endEvent.pointerId);
         this.rootEl.removeClass('is-panning');
@@ -693,7 +706,10 @@ export class TimelineRenderer {
 
           if (collapsed) {
               this.clearLaneItems(dom);
-              contentHeight += COLLAPSED_LANE_HEIGHT + laneGap;
+              // No gap after the final lane, matching the DOM's own marginBottom rule
+              // above: otherwise contentHeight (and the today line sized from it) runs
+              // one gap taller than the content actually is.
+              contentHeight += COLLAPSED_LANE_HEIGHT + (index < lanes.length - 1 ? laneGap : 0);
               return;
           }
 
@@ -717,7 +733,7 @@ export class TimelineRenderer {
 
           const rowHeight = Math.max(1, lane.layout.maxRows) * trackHeight;
           trackEl.style.height = `${rowHeight}px`;
-          contentHeight += rowHeight + laneGap;
+          contentHeight += rowHeight + (index < lanes.length - 1 ? laneGap : 0);
       });
 
       this.contentHeight = contentHeight;

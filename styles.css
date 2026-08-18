@@ -162,7 +162,9 @@
   flex: 1;
   overflow: auto;
   position: relative;
-  background-color: var(--background-primary-alt);
+  /* Matches .tl-lane-row so a scroll area taller than its content does not
+     show a differently shaded strip below the last lane. */
+  background-color: var(--background-primary);
 }
 
 /* Was display:table. Auto table layout re-measures every row against a canvas
@@ -172,6 +174,7 @@
 .tl-grid {
   display: block;
   min-width: 100%;
+  min-height: 100%;
 }
 
 /* Sticky Headers */
@@ -829,6 +832,25 @@
   background: color-mix(in srgb, var(--views-property-color) 24%, var(--background-primary));
 }
 
+/* Dedicated drag handles for reordering columns and swimlanes, kept separate
+   from the header's own click so a lane's collapse toggle never fights a
+   drag start. */
+/* The whole header is the drag surface, so it carries the grab cursor. */
+.mbv-kanban-column-head,
+.mbv-kanban-lane-head {
+  cursor: grab;
+}
+
+.mbv-kanban-column-head:active,
+.mbv-kanban-lane-head:active {
+  cursor: grabbing;
+}
+
+.mbv-kanban-column-head.is-dragging,
+.mbv-kanban-lane-head.is-dragging {
+  opacity: 0.4;
+}
+
 /* The status dot the reference puts inside each column pill. */
 .mbv-kanban-dot {
   flex: none;
@@ -953,6 +975,21 @@
   background: var(--interactive-accent);
 }
 
+/* Columns reorder along the inline axis: the marker sits in the flex header
+   row, so it takes the row's stretched height and only needs a width. */
+.mbv-kanban-drop-marker.is-column {
+  align-self: stretch;
+  width: 2px;
+  height: auto;
+}
+
+/* Swimlanes reorder along the block axis: the marker sits in the plain-block
+   body between one lane's head and the next, so a little margin keeps it from
+   touching either. */
+.mbv-kanban-drop-marker.is-lane {
+  margin: var(--size-2-1) 0;
+}
+
 .mbv-kanban-card {
   display: flex;
   flex-direction: column;
@@ -1068,7 +1105,9 @@
   rotate: 1.5deg;
 }
 
-.mbv-kanban-ghost .mbv-kanban-card {
+.mbv-kanban-ghost .mbv-kanban-card,
+.mbv-kanban-ghost-column .mbv-kanban-column-head,
+.mbv-kanban-ghost-lane .mbv-kanban-lane-head {
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
 }
 
