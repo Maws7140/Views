@@ -17,6 +17,7 @@ import {
 	type SearchModel,
 	type SearchRow,
 } from './search/SearchRenderer';
+import { ContentIndex, matchesHasFacet, type ContentFacts } from './logic/contentIndex';
 import { isPropertyColorEnabled, overrideColorsForProperty } from './settings/settings';
 import { ColorAssigner, parseCustomPalette, resolveColorPalette } from './table-colors/palettes';
 import { renderPropertyValue } from './ui/PropertyValueRenderer';
@@ -87,6 +88,16 @@ export class SearchView extends BasesView {
 	private readonly searchTextCache = new Map<string, SearchTextCacheEntry>();
 	private searchTextSignature = '';
 	private readonly scheduler = new RenderScheduler(() => this.flushDataUpdate());
+	/** Body-content facts, lazy and bounded: built only for the files a render
+	 * is about to show, never swept across the vault. */
+	private readonly contentIndex: ContentIndex;
+	/** Bumped on every `flushDataUpdate`, so a content-index resolution that is
+	 * still in flight when a newer update starts recognises itself as stale
+	 * and skips its re-render instead of clobbering the newer one. This is the
+	 * same problem `SearchRenderer`'s own `renderGeneration` solves for its
+	 * progressive row queue, one level up: here the async step is the whole
+	 * content-filtered model, not a batch of rows. */
+	private contentGeneration = 0;
 
 	constructor(
 		private readonly plugin: ViewsPlugin,
@@ -104,6 +115,8 @@ export class SearchView extends BasesView {
 			renderProperties: (containerEl, path) => this.renderProperties(containerEl, path),
 		});
 		this.register(this.plugin.onPropertyColorSettingsChanged(() => this.onDataUpdated()));
+		this.contentIndex = new ContentIndex(this.app);
+		this.registerEvent(this.app.metadataCache.on('changed', (file) => this.contentIndex.invalidate(file.path)));
 	}
 
 	onunload(): void {
@@ -144,6 +157,31 @@ export class SearchView extends BasesView {
 						type: 'toggle',
 						key: 'launcher',
 						default: false,
+					},
+				],
+			},
+			{
+				displayName: 'Content',
+				type: 'group',
+				items: [
+					{
+						displayName: 'Content contains',
+						type: 'text',
+						key: 'contentQuery',
+						default: '',
+					},
+					{
+						displayName: 'Has',
+						type: 'dropdown',
+						key: 'contentHas',
+						default: 'any',
+						options: {
+							any: 'Anything',
+							code: 'Code block',
+							callout: 'Callout',
+							tasks: 'Tasks',
+							'open-tasks': 'Open tasks',
+						},
 					},
 				],
 			},
@@ -219,9 +257,42 @@ export class SearchView extends BasesView {
 				}
 			}
 		}
-		const model = this.buildModel(properties);
-		reportPerformance('search model', modelStartedAt, { rows: model.groups.reduce((sum, g) => sum + g.rows.length, 0), properties: properties.length });
-		this.renderer.update(model);
+
+		const contentQuery = this.stringConfig('contentQuery', '').trim().toLowerCase();
+		const contentHas = this.stringConfig('contentHas', 'any');
+		const contentActive = Boolean(contentQuery) || contentHas !== 'any';
+
+		if (!contentActive) {
+			const model = this.buildModel(properties, null, false);
+			reportPerformance('search model', modelStartedAt, { rows: model.groups.reduce((sum, g) => sum + g.rows.length, 0), properties: properties.length });
+			this.renderer.update(model);
+			return;
+		}
+
+		// Content facts need `vault.cachedRead`, which is async, so this cannot
+		// be resolved on the Bases render path (which is sync) without a second
+		// pass. Render everything unfiltered first, with a pending indicator, so
+		// the view never flashes to an empty list while the read is in flight.
+		this.contentGeneration += 1;
+		const generation = this.contentGeneration;
+		const pendingModel = this.buildModel(properties, null, true);
+		reportPerformance('search model', modelStartedAt, { rows: pendingModel.groups.reduce((sum, g) => sum + g.rows.length, 0), properties: properties.length });
+		this.renderer.update(pendingModel);
+
+		const files: TFile[] = [];
+		for (const path of this.entriesByPath.keys()) {
+			const file = this.fileForPath(path);
+			if (file) files.push(file);
+		}
+		void this.contentIndex.resolve(files).then((facts) => {
+			// A newer `flushDataUpdate` ran while this resolve was in flight (a
+			// vault edit, a config change): its own pass owns the render now, and
+			// rebuilding the model here against `this.data` as it stands today
+			// would either duplicate that render or race it.
+			if (generation !== this.contentGeneration) return;
+			const filteredModel = this.buildModel(properties, facts, false);
+			this.renderer.update(filteredModel);
+		});
 	}
 
 	private createRenderContext(properties: BasesPropertyId[], palette: string[] | undefined): SearchRenderContext {
@@ -234,12 +305,27 @@ export class SearchView extends BasesView {
 		return { properties, palette, colorEnabled, displayNames };
 	}
 
-	private buildModel(properties: BasesPropertyId[]): SearchModel {
+	/**
+	 * `contentFacts` is `null` while no content filter is set at all, or while
+	 * one is set but its facts have not resolved yet (the pending first pass).
+	 * `contentPending` distinguishes those two: only when it is false and
+	 * `contentFacts` is non-null does a row actually get held to the content
+	 * filter, so the pending pass renders everything the base returned rather
+	 * than an empty list.
+	 */
+	private buildModel(
+		properties: BasesPropertyId[],
+		contentFacts: Map<string, ContentFacts> | null,
+		contentPending: boolean,
+	): SearchModel {
 		this.entriesByPath.clear();
 		this.valuesByPath = new Map();
 		const titleProp = this.config.getAsPropertyId('titleProperty');
 		const subtitle = this.stringConfig('subtitle', 'folder');
 		const searchProperties = this.stringConfig('searchScope', 'all') !== 'title';
+		const contentQuery = this.stringConfig('contentQuery', '').trim().toLowerCase();
+		const contentHas = this.stringConfig('contentHas', 'any');
+		const filterByContent = contentFacts !== null && !contentPending;
 
 		const signature = JSON.stringify([this.config.getOrder(), titleProp, searchProperties]);
 		if (signature !== this.searchTextSignature) {
@@ -253,6 +339,11 @@ export class SearchView extends BasesView {
 			let rowIndex = 0;
 			for (const entry of group.entries) {
 				this.entriesByPath.set(entry.file.path, entry);
+				if (filterByContent) {
+					const facts = contentFacts?.get(entry.file.path);
+					if (contentQuery && !(facts?.text.includes(contentQuery) ?? false)) continue;
+					if (!matchesHasFacet(facts, contentHas)) continue;
+				}
 				const row = this.buildRow(entry, titleProp, subtitle, searchProperties, properties);
 				row.key = `${groups.length}:${rowIndex}:${row.path}`;
 				rows.push(row);
@@ -291,6 +382,7 @@ export class SearchView extends BasesView {
 			pageSize: paginate ? this.numberOption('pageSize', 50, 10, 500) : 0,
 			autoPaginated: auto,
 			columnSignature,
+			contentPending,
 		};
 	}
 

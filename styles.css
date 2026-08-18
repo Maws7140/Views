@@ -3178,3 +3178,32 @@
     align-items: flex-start;
   }
 }
+
+/* Shown while a content filter (Content contains / Has) has a query set but
+   its facts have not resolved yet: the rows on screen are the unfiltered
+   first pass, not the final one, so this reads as "still working" rather
+   than a silently wrong result count. */
+.mbv-ray-content-pending {
+  display: none;
+  align-items: center;
+  gap: var(--size-4-2);
+  padding: var(--size-2-2) var(--size-4-4);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.mbv-ray-content-pending.is-visible {
+  display: flex;
+}
+
+.mbv-ray-content-pending-icon {
+  display: flex;
+  flex: none;
+  animation: mbv-ray-content-pending-spin 0.8s linear infinite;
+}
+
+@keyframes mbv-ray-content-pending-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

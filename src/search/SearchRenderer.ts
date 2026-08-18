@@ -46,6 +46,11 @@ export interface SearchModel {
 	 * Column measurement is re-run only when this changes, never on scroll or
 	 * paging. */
 	columnSignature: string;
+	/** A content filter (`Content contains` / `Has`) is set but its facts have
+	 * not resolved yet: this render is the unfiltered first pass, not the
+	 * final one. Shown as a banner rather than an empty list, since the rows
+	 * on screen right now are real, just not yet narrowed by content. */
+	contentPending: boolean;
 }
 
 export interface SearchCallbacks {
@@ -72,6 +77,7 @@ const EMPTY_MODEL: SearchModel = {
 	pageSize: 0,
 	autoPaginated: false,
 	columnSignature: '',
+	contentPending: false,
 };
 
 /** Below this many rows on one page, everything renders synchronously in one
@@ -99,6 +105,7 @@ type RenderItem =
 export class SearchRenderer {
 	private readonly rootEl: HTMLElement;
 	private readonly inputEl: HTMLInputElement;
+	private readonly contentPendingEl: HTMLElement;
 	private readonly resultsEl: HTMLElement;
 	private readonly paginationEl: HTMLElement;
 	private readonly footerEl: HTMLElement;
@@ -150,6 +157,9 @@ export class SearchRenderer {
 			cls: 'mbv-ray-input',
 			attr: { type: 'text', placeholder: 'Search', spellcheck: 'false' },
 		});
+		this.contentPendingEl = this.rootEl.createDiv({ cls: 'mbv-ray-content-pending' });
+		setIcon(this.contentPendingEl.createSpan({ cls: 'mbv-ray-content-pending-icon' }), 'lucide-loader-2');
+		this.contentPendingEl.createSpan({ text: 'Checking note content' });
 		this.resultsEl = this.rootEl.createDiv({ cls: 'mbv-ray-results' });
 		this.paginationEl = this.rootEl.createDiv({ cls: 'mbv-ray-pagination' });
 		this.footerEl = this.rootEl.createDiv({ cls: 'mbv-ray-footer' });
@@ -191,6 +201,7 @@ export class SearchRenderer {
 	update(model: SearchModel): void {
 		this.model = model;
 		this.inputEl.placeholder = model.placeholder;
+		this.contentPendingEl.toggleClass('is-visible', model.contentPending);
 		// The column count drives the grid, and every row is a subgrid of it, so a
 		// property occupies the same column in every row rather than sitting
 		// wherever its own row's text happened to end.
