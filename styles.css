@@ -362,6 +362,25 @@
   max-width: 100%;
 }
 
+.tl-bar-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--icon-xs);
+  height: var(--icon-xs);
+}
+
+.tl-bar-icon svg {
+  width: var(--icon-xs);
+  height: var(--icon-xs);
+}
+
+.tl-bar-icon.is-emoji {
+  font-size: var(--icon-xs);
+  line-height: 1;
+}
+
 /* A pinned label has scrolled away from its own bar start. */
 .tl-bar-content.is-pinned::before {
   content: "";
@@ -554,56 +573,56 @@
 }
 
 /* Property value color modal */
-.mbv-value-color-modal .modal-content {
+.views-value-color-modal .modal-content {
   padding: 20px;
   max-width: 340px;
 }
 
-.mbv-value-color-hint {
+.views-value-color-hint {
   margin: 0 0 var(--size-4-3);
   color: var(--text-muted);
   font-size: var(--font-ui-small);
 }
 
-.mbv-value-color-swatches {
+.views-value-color-swatches {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(28px, 1fr));
   gap: var(--size-2-2);
   margin-bottom: var(--size-4-3);
 }
 
-.mbv-value-color-swatch {
+.views-color-picker-swatch {
   aspect-ratio: 1 / 1;
   border-radius: var(--radius-s);
-  background-color: var(--mbv-swatch-color);
+  background-color: var(--views-color-picker-swatch-color);
   cursor: pointer;
   border: 2px solid transparent;
 }
 
-.mbv-value-color-swatch:hover {
+.views-color-picker-swatch:hover {
   border-color: var(--background-modifier-border-hover);
 }
 
-.mbv-value-color-swatch.is-selected {
+.views-color-picker-swatch.is-selected {
   border-color: var(--text-accent);
 }
 
-.mbv-value-color-hex-row {
+.views-value-color-hex-row {
   display: flex;
   gap: var(--size-2-2);
   margin-bottom: var(--size-2-3);
 }
 
-.mbv-value-color-hex-input {
+.views-value-color-hex-input {
   flex: 1;
   min-width: 0;
 }
 
-.mbv-value-color-hex-input.is-invalid {
+.views-value-color-hex-input.is-invalid {
   border-color: var(--text-error);
 }
 
-.mbv-value-color-reset {
+.views-value-color-reset {
   width: 100%;
 }
 
@@ -709,7 +728,7 @@
 
 /* Collection view -------------------------------------------------------- */
 
-.mbv-collection-shell {
+.views-collection-shell {
   position: relative;
   width: 100%;
   height: 100%;
@@ -717,10 +736,10 @@
   overflow: hidden;
 }
 
-.mbv-collection {
-  --mbv-card-width: 240px;
-  --mbv-gap: 16px;
-  --mbv-media-share: 50%;
+.views-collection {
+  --views-card-width: 240px;
+  --views-gap: 16px;
+  --views-media-share: 50%;
   height: 100%;
   width: 100%;
   min-height: 0;
@@ -733,14 +752,14 @@
 
 /* Kanban view ------------------------------------------------------------ */
 
-.mbv-kanban-host {
+.views-kanban-host {
   height: 100%;
   min-height: 0;
 }
 
-.mbv-kanban {
-  --mbv-kanban-column-width: 300px;
-  --mbv-kanban-gap: var(--size-4-2);
+.views-kanban {
+  --views-kanban-column-width: 300px;
+  --views-kanban-gap: var(--size-4-2);
   position: relative;
   display: flex;
   flex-direction: column;
@@ -750,13 +769,13 @@
 }
 
 /* Board height slider: cap the view and let the columns scroll inside it. */
-.mbv-kanban.is-fixed-height {
+.views-kanban.is-fixed-height {
   height: auto;
   flex: none;
   min-height: 0;
 }
 
-.mbv-kanban-notice {
+.views-kanban-notice {
   display: none;
   padding: var(--size-2-2) var(--size-4-3);
   border-bottom: var(--border-width) solid var(--background-modifier-border);
@@ -764,11 +783,11 @@
   font-size: var(--font-ui-smaller);
 }
 
-.mbv-kanban-notice.is-visible {
+.views-kanban-notice.is-visible {
   display: block;
 }
 
-.mbv-kanban-board {
+.views-kanban-board {
   flex: 1;
   min-height: 0;
   overflow: auto;
@@ -777,20 +796,20 @@
 
 /* The body is sized by its widest row, so anything inside it can ask for 100%
    and get the full board width rather than the visible width. */
-.mbv-kanban-body {
+.views-kanban-body {
   width: max-content;
   min-width: 100%;
 }
 
-.mbv-kanban-header,
-.mbv-kanban-row {
+.views-kanban-header,
+.views-kanban-row {
   display: flex;
-  gap: var(--mbv-kanban-gap);
+  gap: var(--views-kanban-gap);
   width: max-content;
   min-width: 100%;
 }
 
-.mbv-kanban-header {
+.views-kanban-header {
   position: sticky;
   top: 0;
   z-index: 3;
@@ -803,12 +822,12 @@
    holding one of a note's values, and at full column width the pill's stadium
    shape read as a lozenge. Everything the pill used to supply is declared here,
    so there is no shared rule to override and no file-order dependency. */
-.mbv-kanban-column-head {
+.views-kanban-column-head {
   display: flex;
   align-items: center;
   gap: var(--size-2-2);
-  flex: 0 0 var(--mbv-kanban-column-width);
-  width: var(--mbv-kanban-column-width);
+  flex: 0 0 var(--views-kanban-column-width);
+  width: var(--views-kanban-column-width);
   min-width: 0;
   padding: var(--size-2-2) var(--size-4-2);
   overflow: hidden;
@@ -821,13 +840,13 @@
 }
 
 /* The column's value tints its header, matching the tint its cells carry. */
-.mbv-kanban-column-head.has-value-color {
+.views-kanban-column-head.has-value-color {
   color: color-mix(in srgb, var(--views-property-color) 55%, var(--text-normal));
   border-color: color-mix(in srgb, var(--views-property-color) 32%, transparent);
   background: color-mix(in srgb, var(--views-property-color) 18%, var(--background-primary));
 }
 
-.theme-dark .mbv-kanban-column-head.has-value-color {
+.theme-dark .views-kanban-column-head.has-value-color {
   color: color-mix(in srgb, var(--views-property-color) 38%, var(--text-normal));
   background: color-mix(in srgb, var(--views-property-color) 24%, var(--background-primary));
 }
@@ -836,23 +855,23 @@
    from the header's own click so a lane's collapse toggle never fights a
    drag start. */
 /* The whole header is the drag surface, so it carries the grab cursor. */
-.mbv-kanban-column-head,
-.mbv-kanban-lane-head {
+.views-kanban-column-head,
+.views-kanban-lane-head {
   cursor: grab;
 }
 
-.mbv-kanban-column-head:active,
-.mbv-kanban-lane-head:active {
+.views-kanban-column-head:active,
+.views-kanban-lane-head:active {
   cursor: grabbing;
 }
 
-.mbv-kanban-column-head.is-dragging,
-.mbv-kanban-lane-head.is-dragging {
+.views-kanban-column-head.is-dragging,
+.views-kanban-lane-head.is-dragging {
   opacity: 0.4;
 }
 
 /* The status dot the reference puts inside each column pill. */
-.mbv-kanban-dot {
+.views-kanban-dot {
   flex: none;
   width: 7px;
   height: 7px;
@@ -861,11 +880,11 @@
   background: var(--text-muted);
 }
 
-.mbv-kanban-column-head.has-value-color .mbv-kanban-dot {
+.views-kanban-column-head.has-value-color .views-kanban-dot {
   background: var(--views-property-color);
 }
 
-.mbv-kanban-column-icon {
+.views-kanban-column-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -875,17 +894,17 @@
   margin-inline-end: 0.35em;
 }
 
-.mbv-kanban-column-icon svg {
+.views-kanban-column-icon svg {
   width: var(--icon-s);
   height: var(--icon-s);
 }
 
-.mbv-kanban-column-icon.is-emoji {
+.views-kanban-column-icon.is-emoji {
   font-size: var(--icon-s);
   line-height: 1;
 }
 
-.mbv-kanban-column-label {
+.views-kanban-column-label {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -893,8 +912,8 @@
   white-space: nowrap;
 }
 
-.mbv-kanban-column-count,
-.mbv-kanban-lane-count {
+.views-kanban-column-count,
+.views-kanban-lane-count {
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
   font-variant-numeric: tabular-nums;
@@ -902,7 +921,7 @@
 
 /* The lane divides the whole board, so it is marked by a full-width rule in
    the lane's color rather than another chip competing with the column chips. */
-.mbv-kanban-lane-head {
+.views-kanban-lane-head {
   position: sticky;
   left: 0;
   z-index: 2;
@@ -914,7 +933,7 @@
   cursor: pointer;
 }
 
-.mbv-kanban-lane-toggle {
+.views-kanban-lane-toggle {
   display: flex;
   align-items: center;
   color: var(--text-muted);
@@ -923,28 +942,28 @@
 /* Also a `.views-property-pill`, and the only one that can be uncoloured: a lane
    heading names a column whether or not the value resolved a colour, so it keeps
    a neutral surface where a value would simply be plain text. */
-.mbv-kanban-lane-chip {
+.views-kanban-lane-chip {
   /* A heading keeps the lane head's own size. Tag sizing is for values, and the
      pill rule would otherwise shrink this to `--tag-size`. */
   font-size: inherit;
   font-weight: var(--font-medium);
 }
 
-.mbv-kanban-lane-chip:not(.has-value-color) {
+.views-kanban-lane-chip:not(.has-value-color) {
   color: var(--text-muted);
   background: color-mix(in srgb, var(--background-secondary-alt) 72%, transparent);
 }
 
-.mbv-kanban-lane-head.is-collapsed .mbv-kanban-lane-chip {
+.views-kanban-lane-head.is-collapsed .views-kanban-lane-chip {
   opacity: 0.7;
 }
 
-.mbv-kanban-cell {
+.views-kanban-cell {
   display: flex;
   flex-direction: column;
   gap: var(--size-2-3);
-  flex: 0 0 var(--mbv-kanban-column-width);
-  width: var(--mbv-kanban-column-width);
+  flex: 0 0 var(--views-kanban-column-width);
+  width: var(--views-kanban-column-width);
   min-height: 120px;
   padding: var(--size-2-3);
   border-radius: var(--radius-m);
@@ -952,16 +971,16 @@
 }
 
 /* The column's own value tints its cells, faintly enough to stay a surface. */
-.mbv-kanban-cell[style*="--views-property-color"] {
+.views-kanban-cell[style*="--views-property-color"] {
   background: color-mix(in srgb, var(--views-property-color) 9%, var(--background-secondary));
 }
 
-.mbv-kanban-cell.is-drop-target {
+.views-kanban-cell.is-drop-target {
   outline: var(--border-width) solid color-mix(in srgb, var(--views-property-color, var(--interactive-accent)) 55%, transparent);
   outline-offset: -1px;
 }
 
-.mbv-kanban-more {
+.views-kanban-more {
   padding: var(--size-2-2);
   border-radius: var(--radius-s);
   color: var(--text-faint);
@@ -969,7 +988,7 @@
   text-align: center;
 }
 
-.mbv-kanban-drop-marker {
+.views-kanban-drop-marker {
   height: 2px;
   border-radius: 999px;
   background: var(--interactive-accent);
@@ -977,7 +996,7 @@
 
 /* Columns reorder along the inline axis: the marker sits in the flex header
    row, so it takes the row's stretched height and only needs a width. */
-.mbv-kanban-drop-marker.is-column {
+.views-kanban-drop-marker.is-column {
   align-self: stretch;
   width: 2px;
   height: auto;
@@ -986,11 +1005,11 @@
 /* Swimlanes reorder along the block axis: the marker sits in the plain-block
    body between one lane's head and the next, so a little margin keeps it from
    touching either. */
-.mbv-kanban-drop-marker.is-lane {
+.views-kanban-drop-marker.is-lane {
   margin: var(--size-2-1) 0;
 }
 
-.mbv-kanban-card {
+.views-kanban-card {
   display: flex;
   flex-direction: column;
   gap: var(--size-2-2);
@@ -1003,55 +1022,55 @@
   transition: box-shadow 0.12s ease, transform 0.12s ease;
 }
 
-/* Identical mix to `.mbv-card.has-card-color`, so a colour reads the same on a
+/* Identical mix to `.views-card.has-card-color`, so a colour reads the same on a
    Kanban card as it does on a Collection card. */
-.mbv-kanban-card.has-value-color {
+.views-kanban-card.has-value-color {
   border-color: color-mix(in srgb, var(--views-property-color) 38%, var(--background-modifier-border));
   background: color-mix(in srgb, var(--views-property-color) 11%, var(--background-secondary));
 }
 
-.mbv-kanban-card.has-value-color .mbv-kanban-card-cover {
+.views-kanban-card.has-value-color .views-kanban-card-cover {
   border-bottom: var(--border-width) solid color-mix(in srgb, var(--views-property-color) 28%, var(--background-modifier-border));
 }
 
-.mbv-kanban-card:hover {
+.views-kanban-card:hover {
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.12);
 }
 
-.mbv-kanban-card.is-dragging {
+.views-kanban-card.is-dragging {
   opacity: 0.4;
 }
 
-.mbv-kanban.is-compact .mbv-kanban-card {
+.views-kanban.is-compact .views-kanban-card {
   gap: var(--size-2-1);
   padding: var(--size-2-2);
 }
 
-.mbv-kanban-card-cover {
+.views-kanban-card-cover {
   margin: calc(-1 * var(--size-2-3)) calc(-1 * var(--size-2-3)) 0;
   overflow: hidden;
   border-radius: var(--radius-m) var(--radius-m) 0 0;
 }
 
-.mbv-kanban-card-cover img {
+.views-kanban-card-cover img {
   display: block;
   width: 100%;
-  height: var(--mbv-kanban-cover-height, 96px);
+  height: var(--views-kanban-cover-height, 96px);
   object-fit: cover;
 }
 
-.mbv-kanban.is-coverless .mbv-kanban-card-cover {
+.views-kanban.is-coverless .views-kanban-card-cover {
   display: none;
 }
 
-.mbv-kanban-card-heading {
+.views-kanban-card-heading {
   display: flex;
   align-items: flex-start;
   gap: var(--size-2-2);
   min-width: 0;
 }
 
-.mbv-kanban-card-icon {
+.views-kanban-card-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1062,24 +1081,24 @@
   color: var(--text-muted);
 }
 
-.mbv-kanban-card-icon svg {
+.views-kanban-card-icon svg {
   width: var(--icon-s);
   height: var(--icon-s);
 }
 
-.mbv-kanban-card-icon.is-emoji {
+.views-kanban-card-icon.is-emoji {
   font-size: var(--icon-s);
   line-height: 1;
 }
 
-.mbv-kanban-card-title {
+.views-kanban-card-title {
   min-width: 0;
   font-weight: var(--font-medium);
   line-height: var(--line-height-tight);
   overflow-wrap: anywhere;
 }
 
-.mbv-kanban-card-properties {
+.views-kanban-card-properties {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -1089,12 +1108,12 @@
   color: var(--text-muted);
 }
 
-.mbv-kanban-card-property {
+.views-kanban-card-property {
   min-width: 0;
   max-width: 100%;
 }
 
-.mbv-kanban-ghost {
+.views-kanban-ghost {
   position: fixed;
   top: 0;
   left: 0;
@@ -1105,29 +1124,29 @@
   rotate: 1.5deg;
 }
 
-.mbv-kanban-ghost .mbv-kanban-card,
-.mbv-kanban-ghost-column .mbv-kanban-column-head,
-.mbv-kanban-ghost-lane .mbv-kanban-lane-head {
+.views-kanban-ghost .views-kanban-card,
+.views-kanban-ghost-column .views-kanban-column-head,
+.views-kanban-ghost-lane .views-kanban-lane-head {
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
 }
 
 /* Collection scrollbars -------------------------------------------------- */
 
-.mbv-scroll-host {
+.views-scroll-host {
   position: relative;
 }
 
-.mbv-scroll-surface {
+.views-scroll-surface {
   scrollbar-width: none;
 }
 
-.mbv-scroll-surface::-webkit-scrollbar {
+.views-scroll-surface::-webkit-scrollbar {
   display: none;
   width: 0;
   height: 0;
 }
 
-.mbv-scrollbar {
+.views-scrollbar {
   position: absolute;
   z-index: 6;
   display: none;
@@ -1138,74 +1157,74 @@
   transition: opacity 160ms ease;
 }
 
-.mbv-scrollbar.is-active {
+.views-scrollbar.is-active {
   display: block;
 }
 
-.mbv-scrollbar.is-vertical {
+.views-scrollbar.is-vertical {
   right: 2px;
   width: 8px;
 }
 
-.mbv-scrollbar.is-horizontal {
+.views-scrollbar.is-horizontal {
   height: 8px;
 }
 
-.mbv-scrollbar.is-hovered,
-.mbv-scrollbar.is-scrolling,
-.mbv-scrollbar.is-dragging,
-.mbv-scrollbar.is-focused {
+.views-scrollbar.is-hovered,
+.views-scrollbar.is-scrolling,
+.views-scrollbar.is-dragging,
+.views-scrollbar.is-focused {
   opacity: 0.92;
   pointer-events: auto;
 }
 
-.mbv-scrollbar-thumb {
+.views-scrollbar-thumb {
   position: absolute;
   border: 2px solid transparent;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--mbv-card-color, var(--text-muted)) 62%, transparent);
+  background: color-mix(in srgb, var(--views-card-color, var(--text-muted)) 62%, transparent);
   background-clip: padding-box;
   cursor: grab;
   will-change: transform;
 }
 
-.mbv-scrollbar.is-dragging .mbv-scrollbar-thumb {
+.views-scrollbar.is-dragging .views-scrollbar-thumb {
   cursor: grabbing;
 }
 
-.mbv-scrollbar.is-vertical .mbv-scrollbar-thumb {
+.views-scrollbar.is-vertical .views-scrollbar-thumb {
   top: 0;
   width: 100%;
-  height: var(--mbv-scroll-thumb-size, 24px);
-  transform: translate3d(0, var(--mbv-scroll-thumb-position, 0), 0);
+  height: var(--views-scroll-thumb-size, 24px);
+  transform: translate3d(0, var(--views-scroll-thumb-position, 0), 0);
 }
 
-.mbv-scrollbar.is-horizontal .mbv-scrollbar-thumb {
+.views-scrollbar.is-horizontal .views-scrollbar-thumb {
   left: 0;
-  width: var(--mbv-scroll-thumb-size, 24px);
+  width: var(--views-scroll-thumb-size, 24px);
   height: 100%;
-  transform: translate3d(var(--mbv-scroll-thumb-position, 0), 0, 0);
+  transform: translate3d(var(--views-scroll-thumb-position, 0), 0, 0);
 }
 
 @media (hover: none) {
-  .mbv-scrollbar.is-active {
+  .views-scrollbar.is-active {
     opacity: 0.42;
     pointer-events: auto;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mbv-scrollbar {
+  .views-scrollbar {
     transition: none;
   }
 }
 
-.mbv-section {
+.views-section {
   position: relative;
   margin-block-end: var(--size-4-6);
 }
 
-.mbv-section-header {
+.views-section-header {
   display: flex;
   align-items: center;
   gap: var(--size-4-2);
@@ -1213,14 +1232,14 @@
   margin-block-end: var(--size-4-2);
 }
 
-.mbv-section-title {
+.views-section-title {
   margin: 0;
   color: var(--text-normal);
   font-size: var(--font-ui-medium);
   font-weight: var(--font-semibold);
 }
 
-.mbv-section-count {
+.views-section-count {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1233,15 +1252,15 @@
   font-size: var(--font-ui-smaller);
 }
 
-.mbv-rail {
+.views-rail {
   display: grid;
   align-items: start;
-  gap: var(--mbv-gap);
+  gap: var(--views-gap);
 }
 
-.mbv-collection.is-carousel .mbv-rail {
+.views-collection.is-carousel .views-rail {
   grid-auto-flow: column;
-  grid-auto-columns: min(var(--mbv-card-width), calc(100% - var(--size-4-4)));
+  grid-auto-columns: min(var(--views-card-width), calc(100% - var(--size-4-4)));
   grid-template-rows: 1fr;
   overflow-x: auto;
   overflow-y: hidden;
@@ -1249,47 +1268,47 @@
   overscroll-behavior-inline: contain;
 }
 
-.mbv-collection.is-carousel.has-snap .mbv-rail {
+.views-collection.is-carousel.has-snap .views-rail {
   scroll-snap-type: inline mandatory;
 }
 
-.mbv-collection.is-grid .mbv-rail {
-  grid-template-columns: repeat(auto-fill, minmax(min(var(--mbv-card-width), 100%), 1fr));
+.views-collection.is-grid .views-rail {
+  grid-template-columns: repeat(auto-fill, minmax(min(var(--views-card-width), 100%), 1fr));
 }
 
-.mbv-card {
+.views-card {
   display: flex;
   flex-direction: column;
   min-width: 0;
   overflow: hidden;
   border: var(--border-width) solid var(--background-modifier-border);
-  border-radius: var(--mbv-card-radius, var(--radius-l));
+  border-radius: var(--views-card-radius, var(--radius-l));
   background: var(--background-secondary);
   box-shadow: var(--shadow-s);
   cursor: pointer;
   scroll-snap-align: start;
   transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
   content-visibility: auto;
-  contain-intrinsic-size: var(--mbv-card-width) var(--mbv-card-height);
+  contain-intrinsic-size: var(--views-card-width) var(--views-card-height);
 }
 
-.mbv-card-placeholder {
+.views-card-placeholder {
   visibility: hidden;
   pointer-events: none;
   contain: strict;
 }
 
-.mbv-card.has-card-color {
-  border-color: color-mix(in srgb, var(--mbv-card-color) 38%, var(--background-modifier-border));
-  background: color-mix(in srgb, var(--mbv-card-color) 11%, var(--background-secondary));
+.views-card.has-card-color {
+  border-color: color-mix(in srgb, var(--views-card-color) 38%, var(--background-modifier-border));
+  background: color-mix(in srgb, var(--views-card-color) 11%, var(--background-secondary));
 }
 
-.mbv-card.has-card-color .mbv-card-media {
-  background: color-mix(in srgb, var(--mbv-card-color) 9%, var(--background-primary-alt));
-  border-bottom-color: color-mix(in srgb, var(--mbv-card-color) 28%, var(--background-modifier-border));
+.views-card.has-card-color .views-card-media {
+  background: color-mix(in srgb, var(--views-card-color) 9%, var(--background-primary-alt));
+  border-bottom-color: color-mix(in srgb, var(--views-card-color) 28%, var(--background-modifier-border));
 }
 
-.mbv-load-more {
+.views-load-more {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1304,31 +1323,31 @@
   box-sizing: border-box;
 }
 
-.mbv-collection.is-grid .mbv-load-more {
+.views-collection.is-grid .views-load-more {
   grid-column: 1 / -1;
 }
 
-.mbv-collection.is-carousel .mbv-load-more {
-  width: min(var(--mbv-card-width), calc(100vw - var(--size-4-8)));
+.views-collection.is-carousel .views-load-more {
+  width: min(var(--views-card-width), calc(100vw - var(--size-4-8)));
   scroll-snap-align: none;
 }
 
-.mbv-load-more button {
+.views-load-more button {
   min-width: 96px;
 }
 
-.mbv-card:hover {
+.views-card:hover {
   border-color: var(--background-modifier-border-hover);
   box-shadow: var(--shadow-l);
   transform: translateY(-2px);
 }
 
-.mbv-card:focus-visible {
+.views-card:focus-visible {
   outline: 2px solid var(--interactive-accent);
   outline-offset: 2px;
 }
 
-.mbv-card-media {
+.views-card-media {
   position: relative;
   display: grid;
   flex: 1 1 auto;
@@ -1340,7 +1359,7 @@
   border-bottom: var(--border-width) solid var(--background-modifier-border);
 }
 
-.mbv-card-media img {
+.views-card-media img {
   display: block;
   width: 100%;
   height: 100%;
@@ -1352,34 +1371,34 @@
   transition: transform 180ms ease;
 }
 
-.mbv-collection.media-fit-contain .mbv-card-media img {
+.views-collection.media-fit-contain .views-card-media img {
   object-fit: contain;
 }
 
-.mbv-collection.media-fit-cover .mbv-card-media img,
-.mbv-collection.is-square.media-fit-smart .mbv-card-media img {
+.views-collection.media-fit-cover .views-card-media img,
+.views-collection.is-square.media-fit-smart .views-card-media img {
   object-fit: cover;
 }
 
-.mbv-collection:not(.is-square).media-fit-smart .mbv-card-media img {
+.views-collection:not(.is-square).media-fit-smart .views-card-media img {
   object-fit: contain;
 }
 
-.mbv-card:hover .mbv-card-media img {
+.views-card:hover .views-card-media img {
   transform: scale(1.025);
 }
 
-.mbv-card-media-fallback svg {
+.views-card-media-fallback svg {
   width: clamp(12px, 20cqi, 32px);
   height: clamp(12px, 20cqi, 32px);
   stroke-width: 1.5;
 }
 
-.mbv-card-media.is-icon-preview {
-  color: var(--mbv-card-color, var(--text-muted));
+.views-card-media.is-icon-preview {
+  color: var(--views-card-color, var(--text-muted));
 }
 
-.mbv-card-preview-icon {
+.views-card-preview-icon {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1389,18 +1408,18 @@
   line-height: 1;
 }
 
-.mbv-card-preview-icon svg {
+.views-card-preview-icon svg {
   width: 100%;
   height: 100%;
   stroke-width: 1.35;
 }
 
-.mbv-card-preview-icon.is-emoji {
+.views-card-preview-icon.is-emoji {
   width: auto;
   max-width: 80%;
 }
 
-.mbv-card-body {
+.views-card-body {
   display: flex;
   flex: 0 0 auto;
   flex-direction: column;
@@ -1410,7 +1429,7 @@
   padding: var(--size-4-3);
 }
 
-.mbv-card-title {
+.views-card-title {
   overflow: hidden;
   color: var(--text-normal);
   font-size: clamp(0.75rem, 6cqi, var(--font-ui-medium));
@@ -1420,19 +1439,19 @@
   white-space: nowrap;
 }
 
-.mbv-card-heading {
+.views-card-heading {
   display: flex;
   align-items: flex-start;
   gap: var(--size-2-2);
   min-width: 0;
 }
 
-.mbv-card-heading .mbv-card-title {
+.views-card-heading .views-card-title {
   flex: 1 1 auto;
   min-width: 0;
 }
 
-.mbv-card-icon {
+.views-card-icon {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
@@ -1440,30 +1459,30 @@
   width: 1.35em;
   height: 1.35em;
   border-radius: var(--radius-s);
-  color: var(--mbv-card-color, var(--text-muted));
+  color: var(--views-card-color, var(--text-muted));
   background: color-mix(in srgb, currentColor 10%, transparent);
   font-size: clamp(0.75rem, 6cqi, var(--font-ui-medium));
   line-height: 1;
 }
 
-.mbv-card-icon svg {
+.views-card-icon svg {
   width: 1em;
   height: 1em;
 }
 
-.mbv-card-icon.is-emoji {
+.views-card-icon.is-emoji {
   width: auto;
   min-width: 1.35em;
   background: transparent;
 }
 
-.mbv-card-details {
+.views-card-details {
   display: flex;
   flex-direction: column;
   gap: var(--size-2-2);
 }
 
-.mbv-card-detail {
+.views-card-detail {
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -1472,14 +1491,14 @@
   font-size: var(--font-ui-small);
 }
 
-.mbv-card-detail-label {
+.views-card-detail-label {
   overflow: hidden;
   color: var(--text-muted);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.mbv-card-detail-value {
+.views-card-detail-value {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -1711,33 +1730,33 @@
   max-width: 100%;
 }
 
-.mbv-card {
+.views-card {
   container-type: inline-size;
 }
 
 /* Cards are capped to a row height by default, same as every other mode, so
    one long title cannot lift its whole grid row and strand its siblings
-   (`.mbv-rail` is `align-items: start`, so an uncapped card is never stretched
+   (`.views-rail` is `align-items: start`, so an uncapped card is never stretched
    back down to match). The body scrolls instead; `.is-scrollable` (set by
    CollectionView once it knows the body actually overflows) paints the fade
    and thin scrollbar that say so. "Fit tallest card" below is the deliberate
    exception: it opts into `align-items: stretch` at the same time, so growth
    lifts the row instead of just the one card. */
-.mbv-collection.uses-independent-height .mbv-card {
+.views-collection.uses-independent-height .views-card {
   box-sizing: border-box;
-  block-size: var(--mbv-card-height);
-  min-block-size: var(--mbv-card-height);
-  max-block-size: var(--mbv-card-height);
+  block-size: var(--views-card-height);
+  min-block-size: var(--views-card-height);
+  max-block-size: var(--views-card-height);
 }
 
-.mbv-collection:not(.is-horizontal) .mbv-card.has-media .mbv-card-media {
-  flex: 0 0 var(--mbv-media-share);
-  block-size: var(--mbv-media-share);
+.views-collection:not(.is-horizontal) .views-card.has-media .views-card-media {
+  flex: 0 0 var(--views-media-share);
+  block-size: var(--views-media-share);
   min-height: 0;
   aspect-ratio: auto;
 }
 
-.mbv-collection .mbv-card .mbv-card-body {
+.views-collection .views-card .views-card-body {
   flex: 1 1 0;
   max-height: none;
   overflow-x: hidden;
@@ -1745,7 +1764,7 @@
   position: relative;
 }
 
-.mbv-collection .mbv-card .mbv-card-body.is-scrollable::after {
+.views-collection .views-card .views-card-body.is-scrollable::after {
   content: "";
   position: sticky;
   display: block;
@@ -1758,8 +1777,8 @@
   background: linear-gradient(to bottom, transparent, var(--background-secondary));
 }
 
-.mbv-collection.has-card-color .mbv-card.has-card-color .mbv-card-body.is-scrollable::after {
-  background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--mbv-card-color) 11%, var(--background-secondary)));
+.views-collection.has-card-color .views-card.has-card-color .views-card-body.is-scrollable::after {
+  background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--views-card-color) 11%, var(--background-secondary)));
 }
 
 /* Fit tallest card: the row grows to its tallest member instead of capping
@@ -1767,46 +1786,46 @@
    mode, because paired with the default cap it is exactly the regression
    that let one tall card outgrow and strand a row (`is-fit-height` is only
    set when `cardHeightMode` is `fit`). */
-.mbv-collection.is-fit-height .mbv-rail {
+.views-collection.is-fit-height .views-rail {
   align-items: stretch;
 }
 
-.mbv-collection.is-fit-height .mbv-card {
+.views-collection.is-fit-height .views-card {
   block-size: auto;
-  min-block-size: var(--mbv-card-height);
+  min-block-size: var(--views-card-height);
   max-block-size: none;
   /* content-visibility's intrinsic size otherwise pins the card back to a
      fixed height, laying the grid out against a size the card no longer has. */
-  contain-intrinsic-size: auto var(--mbv-card-width) auto var(--mbv-card-height);
+  contain-intrinsic-size: auto var(--views-card-width) auto var(--views-card-height);
 }
 
-.mbv-collection.is-fit-height .mbv-card .mbv-card-body {
+.views-collection.is-fit-height .views-card .views-card-body {
   flex: 1 1 auto;
   overflow-y: visible;
 }
 
 /* Once the card grows, its height is indefinite and a percentage has nothing to
    resolve against, so the media takes the same share as a real length. */
-.mbv-collection.is-fit-height:not(.is-horizontal) .mbv-card.has-media .mbv-card-media {
-  flex: 0 0 var(--mbv-media-height);
-  block-size: var(--mbv-media-height);
+.views-collection.is-fit-height:not(.is-horizontal) .views-card.has-media .views-card-media {
+  flex: 0 0 var(--views-media-height);
+  block-size: var(--views-media-height);
 }
 
-.mbv-collection.is-square:not(.is-horizontal) .mbv-card {
+.views-collection.is-square:not(.is-horizontal) .views-card {
   aspect-ratio: 1 / 1;
 }
 
-.mbv-collection.is-horizontal .mbv-card.has-media {
+.views-collection.is-horizontal .views-card.has-media {
   flex-direction: row;
 }
 
-.mbv-collection.is-horizontal.is-image-right .mbv-card.has-media {
+.views-collection.is-horizontal.is-image-right .views-card.has-media {
   flex-direction: row-reverse;
 }
 
-.mbv-collection.is-horizontal .mbv-card.has-media .mbv-card-media {
-  flex: 0 0 var(--mbv-media-share);
-  width: var(--mbv-media-share);
+.views-collection.is-horizontal .views-card.has-media .views-card-media {
+  flex: 0 0 var(--views-media-share);
+  width: var(--views-media-share);
   height: 100%;
   min-width: 0;
   aspect-ratio: auto;
@@ -1814,27 +1833,27 @@
   border-inline-end: var(--border-width) solid var(--background-modifier-border);
 }
 
-.mbv-collection.is-horizontal.is-image-right .mbv-card.has-media .mbv-card-media {
+.views-collection.is-horizontal.is-image-right .views-card.has-media .views-card-media {
   border-inline-start: var(--border-width) solid var(--background-modifier-border);
   border-inline-end: 0;
 }
 
-.mbv-collection.is-horizontal .mbv-card.has-media.has-card-color .mbv-card-media {
-  border-inline-end-color: color-mix(in srgb, var(--mbv-card-color) 28%, var(--background-modifier-border));
+.views-collection.is-horizontal .views-card.has-media.has-card-color .views-card-media {
+  border-inline-end-color: color-mix(in srgb, var(--views-card-color) 28%, var(--background-modifier-border));
 }
 
-.mbv-collection.is-horizontal.is-image-right .mbv-card.has-media.has-card-color .mbv-card-media {
-  border-inline-start-color: color-mix(in srgb, var(--mbv-card-color) 28%, var(--background-modifier-border));
+.views-collection.is-horizontal.is-image-right .views-card.has-media.has-card-color .views-card-media {
+  border-inline-start-color: color-mix(in srgb, var(--views-card-color) 28%, var(--background-modifier-border));
 }
 
-.mbv-collection.is-horizontal .mbv-card.has-media .mbv-card-body {
+.views-collection.is-horizontal .views-card.has-media .views-card-body {
   flex: 1 1 0;
   overflow-x: hidden;
   overflow-y: auto;
 }
 
-.mbv-card.has-media.is-preview-hidden .mbv-card-media,
-.mbv-card.has-media.is-content-hidden .mbv-card-body {
+.views-card.has-media.is-preview-hidden .views-card-media,
+.views-card.has-media.is-content-hidden .views-card-body {
   display: none;
 }
 
@@ -1844,16 +1863,16 @@
    the next line rather than disappear. The narrow-container rules below already
    reached for this; it is the rule at every width now.
 
-   Scoped to `.mbv-card` on purpose: the same `views-property-*` classes render
+   Scoped to `.views-card` on purpose: the same `views-property-*` classes render
    in the Table enhancer and in Raycast rows, where a single line is correct. */
-.mbv-card .mbv-card-title,
-.mbv-card .mbv-card-detail-label,
-.mbv-card .views-property-value-text,
-.mbv-card .views-property-value.is-text,
-.mbv-card .views-property-value.is-number,
-.mbv-card .views-property-item,
-.mbv-card .views-property-pill,
-.mbv-card .views-value-chip {
+.views-card .views-card-title,
+.views-card .views-card-detail-label,
+.views-card .views-property-value-text,
+.views-card .views-property-value.is-text,
+.views-card .views-property-value.is-number,
+.views-card .views-property-item,
+.views-card .views-property-pill,
+.views-card .views-value-chip {
   white-space: normal;
   overflow: visible;
   text-overflow: clip;
@@ -1862,7 +1881,7 @@
   overflow-wrap: anywhere;
 }
 
-.mbv-collection.is-square.is-horizontal .mbv-card {
+.views-collection.is-square.is-horizontal .views-card {
   min-block-size: 0;
   max-block-size: none;
   height: auto;
@@ -1870,65 +1889,65 @@
 }
 
 @container (max-width: 260px) {
-  .mbv-card-body {
+  .views-card-body {
     gap: var(--size-4-2);
     padding: var(--size-4-2);
   }
 
-  .mbv-card-detail-label {
+  .views-card-detail-label {
     font-size: var(--font-ui-smaller);
   }
 
 }
 
 @container (max-width: 180px) {
-  .mbv-card-body {
+  .views-card-body {
     gap: 4px;
     padding: 4px;
   }
 
-  .mbv-card-details,
-  .mbv-card-detail {
+  .views-card-details,
+  .views-card-detail {
     gap: 2px;
   }
 
-  .mbv-card-detail-label {
+  .views-card-detail-label {
     font-size: clamp(0.6875rem, 5cqi, var(--font-ui-smaller));
     white-space: normal;
     overflow-wrap: anywhere;
   }
 
-  .mbv-card-detail-value .multi-select-pill,
-  .mbv-card-detail-value .tag {
+  .views-card-detail-value .multi-select-pill,
+  .views-card-detail-value .tag {
     padding-inline: 2px;
   }
 }
 
 @container (max-width: 140px) {
-  .mbv-collection.is-square .mbv-card-details {
+  .views-collection.is-square .views-card-details {
     display: none;
   }
 
-  .mbv-card-detail-label {
+  .views-card-detail-label {
     display: none;
   }
 }
 
 @container (max-width: 96px) {
-  .mbv-card-body {
+  .views-card-body {
     padding: 2px;
   }
 
-  .mbv-card-details {
+  .views-card-details {
     display: none;
   }
 }
 
-.mbv-card-detail-value > * {
+.views-card-detail-value > * {
   max-width: 100%;
 }
 
-.mbv-card-detail-value img {
+.views-card-detail-value img {
   display: block;
   width: auto;
   max-width: 100%;
@@ -1937,21 +1956,21 @@
   object-fit: cover;
 }
 
-.mbv-card-detail-value .multi-select-container,
-.mbv-card-detail-value .metadata-property-value {
+.views-card-detail-value .multi-select-container,
+.views-card-detail-value .metadata-property-value {
   min-width: 0;
   max-width: 100%;
   flex-wrap: wrap;
 }
 
-.mbv-card-detail-value .multi-select-pill,
-.mbv-card-detail-value .tag {
+.views-card-detail-value .multi-select-pill,
+.views-card-detail-value .tag {
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.mbv-empty {
+.views-empty {
   display: flex;
   min-height: 240px;
   flex-direction: column;
@@ -1962,49 +1981,49 @@
   text-align: center;
 }
 
-.mbv-empty-icon svg {
+.views-empty-icon svg {
   width: 36px;
   height: 36px;
   stroke-width: 1.5;
 }
 
-.mbv-empty-title {
+.views-empty-title {
   color: var(--text-normal);
   font-weight: var(--font-semibold);
 }
 
-.mbv-empty-description {
+.views-empty-description {
   font-size: var(--font-ui-small);
 }
 
 @media (max-width: 900px) {
-  .mbv-collection.is-grid .mbv-rail {
+  .views-collection.is-grid .views-rail {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 520px) {
-  .mbv-collection {
+  .views-collection {
     padding: var(--size-4-2);
   }
 
-  .mbv-collection.is-grid .mbv-rail {
+  .views-collection.is-grid .views-rail {
     grid-template-columns: 1fr;
   }
 
-  .mbv-card:hover {
+  .views-card:hover {
     transform: none;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mbv-card,
-  .mbv-card-media img {
+  .views-card,
+  .views-card-media img {
     transition: none;
   }
 
-  .mbv-card:hover,
-  .mbv-card:hover .mbv-card-media img {
+  .views-card:hover,
+  .views-card:hover .views-card-media img {
     transform: none;
   }
 }
@@ -2231,14 +2250,14 @@
 /* Heatmap
    ------------------------------------------------------------------------- */
 
-.mbv-heatmap-host {
+.views-heatmap-host {
   container-type: inline-size;
   width: 100%;
 }
 
-.mbv-heatmap {
-  --mbv-heat-cell: 11px;
-  --mbv-heat-gap: 3px;
+.views-heatmap {
+  --views-heat-cell: 11px;
+  --views-heat-gap: 3px;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -2246,7 +2265,7 @@
   padding: var(--size-4-3);
 }
 
-.mbv-heat-layout {
+.views-heat-layout {
   display: flex;
   align-items: flex-start;
   gap: var(--size-4-3);
@@ -2254,7 +2273,7 @@
 
 /* min-width lets the grid column shrink below its content width so the
    horizontal scroll stays inside it instead of pushing the period column out. */
-.mbv-heat-main {
+.views-heat-main {
   display: flex;
   flex: 1 1 auto;
   min-width: 0;
@@ -2262,19 +2281,19 @@
   gap: var(--size-4-2);
 }
 
-.mbv-heat-header {
+.views-heat-header {
   display: flex;
   align-items: baseline;
   gap: var(--size-4-3);
   flex-wrap: wrap;
 }
 
-.mbv-heat-total {
+.views-heat-total {
   color: var(--text-normal);
   font-size: var(--font-ui-medium);
 }
 
-.mbv-heat-periods {
+.views-heat-periods {
   display: flex;
   flex: 0 0 auto;
   flex-direction: column;
@@ -2282,7 +2301,7 @@
   gap: var(--size-2-2);
 }
 
-.mbv-heat-stepper {
+.views-heat-stepper {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2290,13 +2309,13 @@
   padding-bottom: var(--size-2-2);
 }
 
-.mbv-heat-step-label {
+.views-heat-step-label {
   color: var(--text-normal);
   font-size: var(--font-ui-smaller);
   font-weight: var(--font-medium);
 }
 
-.mbv-heat-step {
+.views-heat-step {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2309,23 +2328,23 @@
   cursor: pointer;
 }
 
-.mbv-heat-step .svg-icon {
+.views-heat-step .svg-icon {
   width: var(--icon-s);
   height: var(--icon-s);
 }
 
-.mbv-heat-step:hover:not(:disabled) {
+.views-heat-step:hover:not(:disabled) {
   color: var(--text-normal);
   background: var(--background-modifier-hover);
 }
 
 /* Disabled rather than hidden, so the row keeps its width at the ends of the data. */
-.mbv-heat-step:disabled {
+.views-heat-step:disabled {
   opacity: 0.35;
   cursor: default;
 }
 
-.mbv-heat-period {
+.views-heat-period {
   padding: var(--size-2-2) var(--size-4-3);
   border: 0;
   border-radius: var(--radius-m);
@@ -2338,12 +2357,12 @@
   cursor: pointer;
 }
 
-.mbv-heat-period:hover {
+.views-heat-period:hover {
   color: var(--text-normal);
   background: var(--background-modifier-hover);
 }
 
-.mbv-heat-period.is-active {
+.views-heat-period.is-active {
   color: var(--text-on-accent);
   background: var(--interactive-accent);
 }
@@ -2351,18 +2370,18 @@
 /* A narrow leaf cannot afford a column beside the grid, so the buttons fall
    back to a wrapping row under the block. */
 @container (max-width: 420px) {
-  .mbv-heat-layout {
+  .views-heat-layout {
     flex-direction: column;
   }
 
-  .mbv-heat-periods {
+  .views-heat-periods {
     flex-direction: row;
     flex-wrap: wrap;
     align-items: center;
   }
 }
 
-.mbv-heat-notice {
+.views-heat-notice {
   padding: var(--size-4-2) var(--size-4-3);
   border: var(--border-width) solid var(--background-modifier-border);
   border-radius: var(--radius-s);
@@ -2371,14 +2390,14 @@
   font-size: var(--font-ui-smaller);
 }
 
-.mbv-heat-body {
+.views-heat-body {
   position: relative;
   display: flex;
   align-items: flex-start;
   gap: var(--size-2-2);
 }
 
-.mbv-heat-scroll {
+.views-heat-scroll {
   display: flex;
   flex-direction: column;
   gap: var(--size-2-2);
@@ -2388,18 +2407,18 @@
 
 /* The weekday column sits beside the scroll region, so it stays put while the
    grid scrolls under the month labels. */
-.mbv-heat-weekdays {
+.views-heat-weekdays {
   display: grid;
-  grid-template-rows: repeat(7, var(--mbv-heat-cell));
-  gap: var(--mbv-heat-gap);
+  grid-template-rows: repeat(7, var(--views-heat-cell));
+  gap: var(--views-heat-gap);
   /* Clears the month label row above the grid. */
   padding-top: calc(var(--font-ui-smaller) + var(--size-2-2));
 }
 
-.mbv-heat-weekday {
+.views-heat-weekday {
   display: flex;
   align-items: center;
-  height: var(--mbv-heat-cell);
+  height: var(--views-heat-cell);
   padding-right: var(--size-2-2);
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
@@ -2407,50 +2426,50 @@
   white-space: nowrap;
 }
 
-.mbv-heat-months {
+.views-heat-months {
   display: grid;
-  gap: var(--mbv-heat-gap);
+  gap: var(--views-heat-gap);
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
   line-height: 1;
 }
 
-.mbv-heat-month {
+.views-heat-month {
   overflow: hidden;
   white-space: nowrap;
 }
 
-.mbv-heat-grid {
+.views-heat-grid {
   display: grid;
-  gap: var(--mbv-heat-gap);
+  gap: var(--views-heat-gap);
 }
 
-.mbv-heat-column {
+.views-heat-column {
   display: grid;
-  grid-template-rows: repeat(7, var(--mbv-heat-cell));
-  gap: var(--mbv-heat-gap);
+  grid-template-rows: repeat(7, var(--views-heat-cell));
+  gap: var(--views-heat-gap);
 }
 
-.mbv-heat-cell {
-  width: var(--mbv-heat-cell);
-  height: var(--mbv-heat-cell);
-  border-radius: max(2px, calc(var(--mbv-heat-cell) * 0.2));
+.views-heat-cell {
+  width: var(--views-heat-cell);
+  height: var(--views-heat-cell);
+  border-radius: max(2px, calc(var(--views-heat-cell) * 0.2));
   background: var(--background-modifier-border);
   outline: var(--border-width) solid transparent;
   outline-offset: -1px;
 }
 
 /* Outside the period. No path, so it can never resolve to a file. */
-.mbv-heat-cell.is-void {
+.views-heat-cell.is-void {
   background: transparent;
 }
 
-.mbv-heat-cell[data-path] {
+.views-heat-cell[data-path] {
   cursor: pointer;
 }
 
-.mbv-heat-cell[data-path]:hover,
-.mbv-heat-cell[data-path]:focus-visible {
+.views-heat-cell[data-path]:hover,
+.views-heat-cell[data-path]:focus-visible {
   outline-color: var(--text-normal);
 }
 
@@ -2458,19 +2477,19 @@
    diluted toward the theme background to help the default ramp read in a light
    theme, but that also meant a colour the user typed was never the colour that
    appeared, which is worse than a default that suits one theme better. */
-.mbv-heat-cell[data-level="1"],
-.mbv-heat-cell[data-level="2"],
-.mbv-heat-cell[data-level="3"],
-.mbv-heat-cell[data-level="4"],
-.mbv-heat-cell[data-level="5"],
-.mbv-heat-cell[data-level="6"],
-.mbv-heat-cell[data-level="7"],
-.mbv-heat-cell[data-level="8"],
-.mbv-heat-cell[data-level="9"] {
-  background: var(--mbv-heat-color);
+.views-heat-cell[data-level="1"],
+.views-heat-cell[data-level="2"],
+.views-heat-cell[data-level="3"],
+.views-heat-cell[data-level="4"],
+.views-heat-cell[data-level="5"],
+.views-heat-cell[data-level="6"],
+.views-heat-cell[data-level="7"],
+.views-heat-cell[data-level="8"],
+.views-heat-cell[data-level="9"] {
+  background: var(--views-heat-color);
 }
 
-.mbv-heat-legend {
+.views-heat-legend {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -2480,21 +2499,21 @@
   font-size: var(--font-ui-smaller);
 }
 
-.mbv-heat-legend-item {
+.views-heat-legend-item {
   display: flex;
   align-items: center;
   gap: var(--size-2-1);
 }
 
-.mbv-heat-legend-label {
+.views-heat-legend-label {
   white-space: nowrap;
 }
 
-.mbv-heat-legend-end {
+.views-heat-legend-end {
   color: var(--text-faint);
 }
 
-.mbv-heat-tip {
+.views-heat-tip {
   position: absolute;
   z-index: var(--layer-tooltip);
   transform: translate(-50%, calc(-100% - var(--size-2-3)));
@@ -2510,19 +2529,19 @@
   pointer-events: none;
 }
 
-.mbv-heat-tip-summary {
+.views-heat-tip-summary {
   color: var(--text-normal);
 }
 
-.mbv-heat-tip-note,
-.mbv-heat-tip-more {
+.views-heat-tip-note,
+.views-heat-tip-more {
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.mbv-heatmap .is-hidden {
+.views-heatmap .is-hidden {
   display: none;
 }
 
@@ -2535,13 +2554,13 @@
    be discovered.
    ========================================================================== */
 
-.mbv-raycast-host {
+.views-raycast-host {
   display: flex;
   height: 100%;
   min-height: 0;
 }
 
-.mbv-ray {
+.views-ray {
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -2550,7 +2569,7 @@
   background-color: var(--background-primary);
 }
 
-.mbv-ray-search {
+.views-ray-search {
   display: flex;
   align-items: center;
   gap: var(--size-4-2);
@@ -2558,7 +2577,7 @@
   border-bottom: 1px solid var(--background-modifier-border);
 }
 
-.mbv-ray-search-icon {
+.views-ray-search-icon {
   display: flex;
   flex: none;
   color: var(--text-muted);
@@ -2566,7 +2585,7 @@
 
 /* The field carries no box of its own: the row it sits in is the box, which is
    what makes it read as a command bar instead of a form input. */
-.mbv-ray-input {
+.views-ray-input {
   flex: 1;
   min-width: 0;
   padding: 0;
@@ -2577,14 +2596,14 @@
   font-size: var(--font-ui-large);
 }
 
-.mbv-ray-input:focus,
-.mbv-ray-input:focus-visible {
+.views-ray-input:focus,
+.views-ray-input:focus-visible {
   border: 0;
   outline: none;
   box-shadow: none;
 }
 
-.mbv-ray-group {
+.views-ray-group {
   padding: var(--size-4-2) var(--size-4-2) var(--size-2-2);
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
@@ -2594,40 +2613,42 @@
 }
 
 /* Columns, shared by every row.
- 
-   The list itself is the grid: one track for the title and one per property.
-   Each row is a `subgrid` of it, so a property lands in the same column in
-   every row instead of wherever its own row's text happened to end. That is the
-   difference between right-aligning each row separately, which is what this was
-   doing and what looked ragged, and a table.
- 
-   `minmax(0, max-content)` on a property track sizes it to the widest value in
-   that column and lets it shrink when the row runs out of room, so a column of
-   two-letter values stays two letters wide and a column of dates is as wide as
-   a date. The title track is the flexible one and gives way first, for the same
-   reason as before: a name reads truncated, a date does not. */
-.mbv-ray-results {
+
+   The list itself is the grid: one track for the title and one per property
+   or content column. Each row is a `subgrid` of it, so a value lands in the
+   same column in every row instead of wherever its own row's text happened
+   to end. That is the difference between right-aligning each row
+   separately, which is what this was doing and what looked ragged, and a
+   table.
+
+   Every track is a fixed pixel width, written inline by
+   `SearchRenderer.applyColumnLayout` (a stored width if the user dragged
+   one, a measured width for an untouched property column, a fixed default
+   for an untouched content column): none of them is `1fr` or otherwise
+   flexible, none absorbs leftover space, and none shrinks. Past a certain
+   number of columns, or with one column dragged wide, the row is simply
+   wider than the pane and the whole list scrolls sideways, title included,
+   the same way the built-in Bases table does. No static template is
+   declared here: the renderer always writes one before the first paint that
+   would otherwise need it. */
+.views-ray-results {
   display: grid;
-  grid-template-columns: minmax(var(--mbv-ray-title-min), 1fr) repeat(var(--mbv-ray-columns, 0), max-content);
+  /* Containing block for every resize grip. */
+  position: relative;
   align-content: start;
   column-gap: var(--size-4-4);
   flex: 1;
   min-width: 0;
   min-height: 0;
-  /* Enough properties and the columns stop fitting. Rather than compress them
-     all into illegibility, the list scrolls sideways: the property columns are
-     `max-content` so they keep their size, and the title track has a floor, so
-     past that point the grid is simply wider than the pane. Not the expected
-     way to use this view, but it should not fall apart if someone does. */
+  /* Enough columns and they stop fitting, or one has been dragged wide, or
+     the pane itself is narrow: any of the three makes the grid wider than
+     the pane, and rather than compress everything into illegibility the
+     list scrolls sideways instead. */
   overflow: auto;
   padding: var(--size-4-2);
 }
 
-.mbv-ray {
-  --mbv-ray-title-min: 14rem;
-}
-
-.mbv-ray-row {
+.views-ray-row {
   display: grid;
   grid-column: 1 / -1;
   grid-template-columns: subgrid;
@@ -2646,57 +2667,178 @@
 /* Once column widths are measured and frozen (SearchRenderer.measureAndFreezeColumns),
    the parent grid's explicit pixel tracks already define the row's width, so the
    max-content-driven minimum above is no longer needed. */
-.mbv-ray.is-columns-frozen .mbv-ray-row {
+.views-ray.is-columns-frozen .views-ray-row,
+.views-ray.is-columns-frozen .views-ray-header {
   min-width: 0;
+}
+
+/* The header row: a subgrid of the same tracks every `.views-ray-row` uses, so
+   a header cell lands over its column no matter how that column has been
+   resized or how far the list has scrolled sideways. It is not a row (see
+   `SearchRenderer`'s own comment on `headerEl`): it is a persistent element
+   the renderer re-appends after every `resultsEl.empty()`, appended first so
+   it lands in the grid's first row track.
+
+   `position: sticky; top: 0` pins it to the top of `.views-ray-results` on the
+   vertical axis only: nothing here constrains its horizontal offset, so it
+   scrolls sideways with the grid exactly like every row does, and only its
+   vertical position is held. An opaque background is what makes that
+   readable, since rows keep scrolling underneath it.
+
+   `pointer-events: none` is what keeps a resize grip fully draggable even
+   over the header band: the grips stay exactly what they were before this
+   feature (absolutely positioned children of `.views-ray-results`, height from
+   `scrollHeight`, see `syncResizeHandleHeight`), and painting the header on
+   top of them would otherwise block clicks on the portion of a grip that now
+   sits under it. The header itself has nothing to click, so nothing is lost
+   by never receiving a pointer event. */
+.views-ray-header {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  min-width: max-content;
+  align-items: center;
+  padding: var(--size-2-3) var(--size-4-2);
+  background-color: var(--background-primary);
+  border-bottom: 1px solid var(--background-modifier-border);
+  pointer-events: none;
+}
+
+.views-ray-header-cell {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* A heading, a notice and the progressive-render sentinel are not rows of the
    table and span the whole width. */
-.mbv-ray-group,
-.mbv-ray-notice,
-.mbv-ray-load-more {
+.views-ray-group,
+.views-ray-notice,
+.views-ray-load-more {
   grid-column: 1 / -1;
 }
 
-.mbv-ray-load-more {
+.views-ray-load-more {
   height: 1px;
 }
 
-.mbv-ray-group.is-continued {
+.views-ray-group.is-continued {
   font-style: italic;
 }
 
-.mbv-ray.is-compact .mbv-ray-row {
+/* One grip per column boundary: title|column-0, column-0|column-1, and so
+   on. There is no header row in this view to hang a conventional resize
+   handle off, so each one sits directly in the results grid instead.
+   `SearchRenderer` creates and removes grip elements to match the current
+   column count (`syncResizeHandles`), so there is never a hidden, inert
+   grip for a boundary that does not exist; nothing here needs to hide one.
+
+   Absolutely positioned rather than a grid item spanning `1 / -1`: the grid
+   declares an explicit column template and no row template, so every row is
+   an implicit track and `-1` resolves to the first line of the explicit
+   grid, which would collapse the span to one row. An absolutely positioned
+   child of the scroll container travels with the scrolled content on both
+   axes instead, so it stays on its boundary rather than drifting off it;
+   only its height has to be set in script (`syncResizeHandleHeight`),
+   because `height: 100%` would resolve against the visible box, not the
+   scrollable content. `left` is likewise written in script
+   (`applyColumnLayout`), centered on the column gap rather than inside
+   either neighbouring column, from the same pixel widths the grid template
+   itself is built from, so the two can never disagree about where a
+   boundary actually is. */
+.views-ray-resize-handle {
+  position: absolute;
+  top: 0;
+  width: 8px;
+  transform: translateX(-50%);
+  cursor: col-resize;
+  touch-action: none;
+}
+
+/* At rest the grip is invisible: only the 8px pointer target exists, no line
+   drawn down the list. Hover and drag reveal a plain hairline centered on
+   the boundary, in a neutral border color rather than an accent, since this
+   is a resize affordance and not selection state. */
+.views-ray-resize-handle::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background-color: transparent;
+}
+
+.views-ray-resize-handle:hover::before {
+  background-color: var(--background-modifier-border-hover, var(--background-modifier-border));
+}
+
+.views-ray-resize-handle.is-dragging::before {
+  background-color: var(--text-faint);
+}
+
+.views-ray.is-compact .views-ray-row {
   padding: var(--size-2-1) var(--size-4-2);
 }
 
-.mbv-ray-row:hover {
+.views-ray-row:hover {
   background-color: var(--background-modifier-hover);
 }
 
 /* Selection is keyboard state, not hover, so it has to stay legible while the
    pointer sits somewhere else entirely. It carries that on the surface alone,
    with no accent bar down the edge. */
-.mbv-ray-row.is-selected,
-.mbv-ray-row.is-selected:hover {
+.views-ray-row.is-selected,
+.views-ray-row.is-selected:hover {
   background-color: var(--background-modifier-active-hover, var(--background-modifier-hover));
 }
 
-.mbv-ray-row.is-selected .mbv-ray-title {
+.views-ray-row.is-selected .views-ray-title {
   font-weight: var(--font-medium);
 }
 
-.mbv-ray-row-main {
+.views-ray-row-main {
   display: flex;
   align-items: baseline;
   gap: var(--size-4-2);
   min-width: 0;
 }
 
+.views-ray-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--icon-s);
+  height: var(--icon-s);
+  /* Baseline alignment on the row puts a glyph slightly high against the
+     text it sits beside, the same nudge the Kanban card icon makes. */
+  align-self: center;
+  color: var(--text-muted);
+}
+
+.views-ray-icon svg {
+  width: var(--icon-s);
+  height: var(--icon-s);
+}
+
+.views-ray-icon.is-emoji {
+  font-size: var(--icon-s);
+  line-height: 1;
+}
+
 /* Both halves of the title block ellipsise. Either one can be long, and a flex
    item will not shrink below its text without being told it may. */
-.mbv-ray-title,
-.mbv-ray-subtitle {
+.views-ray-title,
+.views-ray-subtitle {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -2704,12 +2846,12 @@
   white-space: nowrap;
 }
 
-.mbv-ray-title {
+.views-ray-title {
   color: var(--text-normal);
 }
 
 /* The folder yields before the name does: it is context, the name is identity. */
-.mbv-ray-subtitle {
+.views-ray-subtitle {
   flex-shrink: 4;
   color: var(--text-faint);
   font-size: var(--font-ui-smaller);
@@ -2718,7 +2860,7 @@
 /* A value too wide for its column trails off rather than widening the column
    for every other row. The cap is what stops one enormous value from defining
    a column, now that the columns no longer shrink. */
-.mbv-ray-prop {
+.views-ray-prop {
   min-width: 0;
   max-width: 40ch;
   overflow: hidden;
@@ -2728,10 +2870,30 @@
   white-space: nowrap;
 }
 
+/* A content column's cell is note body text, not a property value, so a
+   single truncated line is not enough room for it the way it is for a tag
+   or a date: it clamps to `contentLines` lines instead (`--views-ray-content-
+   lines`, written by `SearchView`'s "Content lines" option), wrapping real
+   line breaks (`extractContentValue` keeps blank-line structure rather than
+   collapsing it away) as well as long ones. The standard line-clamp box,
+   not a fixed pixel height, so the cell still holds exactly `contentLines`
+   lines at the user's own font size. Column width is never measured for
+   this cell (see `SearchRenderer.isMeasuredColumn`): a wrapped paragraph's
+   natural width would be enormous, so the column starts at a fixed default
+   and the user drags it from there instead. */
+.views-ray-prop.is-content {
+  max-width: none;
+  white-space: pre-line;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--views-ray-content-lines, 3);
+  overflow: hidden;
+}
+
 /* Compound, not descendant. `renderPropertyValue` puts `views-property-value`
-   on the element it is handed, so the value class and `mbv-ray-prop` are the
+   on the element it is handed, so the value class and `views-ray-prop` are the
    same element and a descendant selector matches nothing at all. */
-.mbv-ray-prop.views-property-value {
+.views-ray-prop.views-property-value {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2743,39 +2905,40 @@
    agreed. A column is the same shape at any width.
  
    Three classes because `.views-property-value.is-list` declares
-   `overflow: visible` and would otherwise out-specify `.mbv-ray-prop`. */
-.mbv-ray-prop.views-property-value.is-list {
+   `overflow: visible` and would otherwise out-specify `.views-ray-prop`. */
+.views-ray-prop.views-property-value.is-list {
   flex-direction: column;
   align-items: flex-start;
   flex-wrap: nowrap;
   overflow: hidden;
 }
 
-/* A stacked property sets the row's height, so the parts align to the top of it
-   rather than floating in the middle. `renderProperties` reports whether a row
-   holds a list value and the row gets `has-list` directly: `:has()` forces the
+/* A stacked property, or a content column's multi-line cell, sets the row's
+   height, so the parts align to the top of it rather than floating in the
+   middle. `renderProperties` reports whether a row holds a list value or a
+   content column and the row gets `has-list` directly: `:has()` forces the
    style engine to track invalidation state on every row subtree so any
    mutation inside it can invalidate the row's own style, which is real cost
    multiplied across thousands of rows during a rebuild and easy to avoid. */
-.mbv-ray-row.has-list {
+.views-ray-row.has-list {
   align-items: start;
 }
 
-.mbv-ray-prop .views-property-item,
-.mbv-ray-prop .views-value-chip,
-.mbv-ray-prop .views-property-pill {
+.views-ray-prop .views-property-item,
+.views-ray-prop .views-value-chip,
+.views-ray-prop .views-property-pill {
   flex: 0 1 auto;
   min-width: 0;
 }
 
-.mbv-ray-notice {
+.views-ray-notice {
   padding: var(--size-4-4) var(--size-4-2);
   color: var(--text-muted);
   font-size: var(--font-ui-small);
   text-align: center;
 }
 
-.mbv-ray-pagination {
+.views-ray-pagination {
   display: none;
   align-items: center;
   justify-content: space-between;
@@ -2786,32 +2949,32 @@
   font-size: var(--font-ui-smaller);
 }
 
-.mbv-ray-pagination.is-visible {
+.views-ray-pagination.is-visible {
   display: flex;
 }
 
-.mbv-ray-page-info {
+.views-ray-page-info {
   display: flex;
   align-items: center;
   gap: var(--size-4-3);
   min-width: 0;
 }
 
-.mbv-ray-page-position {
+.views-ray-page-position {
   color: var(--text-faint);
 }
 
-.mbv-ray-page-auto {
+.views-ray-page-auto {
   color: var(--text-faint);
   font-style: italic;
 }
 
-.mbv-ray-page-nav {
+.views-ray-page-nav {
   display: flex;
   gap: var(--size-2-2);
 }
 
-.mbv-ray-page-btn {
+.views-ray-page-btn {
   padding: var(--size-2-1) var(--size-2-3);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
@@ -2821,17 +2984,17 @@
   cursor: pointer;
 }
 
-.mbv-ray-page-btn:hover:not(:disabled) {
+.views-ray-page-btn:hover:not(:disabled) {
   background-color: var(--background-modifier-hover);
 }
 
-.mbv-ray-page-btn:disabled {
+.views-ray-page-btn:disabled {
   color: var(--text-faint);
   cursor: default;
   opacity: 0.6;
 }
 
-.mbv-ray-footer {
+.views-ray-footer {
   display: flex;
   flex-wrap: wrap;
   gap: var(--size-4-3);
@@ -2841,13 +3004,13 @@
   font-size: var(--font-ui-smaller);
 }
 
-.mbv-ray-hint {
+.views-ray-hint {
   display: inline-flex;
   align-items: center;
   gap: var(--size-2-2);
 }
 
-.mbv-ray-key {
+.views-ray-key {
   padding: 1px var(--size-2-2);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s);
@@ -2859,21 +3022,21 @@
 /* Calendar
    ------------------------------------------------------------------------- */
 
-.mbv-calendar-host {
+.views-calendar-host {
   container-type: inline-size;
   width: 100%;
 }
 
-.mbv-calendar {
-  --mbv-cal-cell: 56px;
-  --mbv-cal-weeknum: 28px;
+.views-calendar {
+  --views-cal-cell: 56px;
+  --views-cal-weeknum: 28px;
   display: flex;
   flex-direction: column;
   gap: var(--size-4-2);
   padding: var(--size-4-3);
 }
 
-.mbv-cal-header {
+.views-cal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2881,7 +3044,7 @@
   flex-wrap: wrap;
 }
 
-.mbv-cal-title {
+.views-cal-title {
   display: flex;
   align-items: baseline;
   gap: var(--size-2-2);
@@ -2889,25 +3052,25 @@
   font-weight: var(--font-medium);
 }
 
-.mbv-cal-month-name {
+.views-cal-month-name {
   color: var(--text-normal);
 }
 
 /* The year takes the accent the reference gives it, so the pair reads as one
    heading with the changing half emphasised. */
-.mbv-cal-year {
+.views-cal-year {
   color: var(--text-accent);
   font-weight: var(--font-bold);
 }
 
-.mbv-cal-nav {
+.views-cal-nav {
   display: flex;
   align-items: center;
   gap: var(--size-2-1);
 }
 
-.mbv-cal-step,
-.mbv-cal-today {
+.views-cal-step,
+.views-cal-today {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2920,46 +3083,46 @@
   cursor: pointer;
 }
 
-.mbv-cal-today {
+.views-cal-today {
   font-size: var(--font-ui-smaller);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.mbv-cal-step:hover,
-.mbv-cal-today:hover {
+.views-cal-step:hover,
+.views-cal-today:hover {
   background-color: var(--background-modifier-hover);
   color: var(--text-normal);
 }
 
-.mbv-cal-notice {
+.views-cal-notice {
   color: var(--text-muted);
   font-size: var(--font-ui-small);
 }
 
-.mbv-cal-notice.is-hidden,
-.mbv-cal-body.is-hidden,
-.mbv-cal-detail.is-hidden {
+.views-cal-notice.is-hidden,
+.views-cal-body.is-hidden,
+.views-cal-detail.is-hidden {
   display: none;
 }
 
-.mbv-cal-body {
+.views-cal-body {
   display: flex;
   flex-direction: column;
 }
 
-.mbv-cal-weekdays,
-.mbv-cal-week {
+.views-cal-weekdays,
+.views-cal-week {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
 }
 
-.mbv-calendar.has-week-numbers .mbv-cal-weekdays,
-.mbv-calendar.has-week-numbers .mbv-cal-week {
-  grid-template-columns: var(--mbv-cal-weeknum) repeat(7, minmax(0, 1fr));
+.views-calendar.has-week-numbers .views-cal-weekdays,
+.views-calendar.has-week-numbers .views-cal-week {
+  grid-template-columns: var(--views-cal-weeknum) repeat(7, minmax(0, 1fr));
 }
 
-.mbv-cal-weekday {
+.views-cal-weekday {
   padding: var(--size-2-2) 0;
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
@@ -2971,7 +3134,7 @@
 
 /* The week column is separated by a rule rather than a gap, matching the
    reference's single hairline between the numbers and the first day. */
-.mbv-cal-weeknum {
+.views-cal-weeknum {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2980,7 +3143,7 @@
   font-size: var(--font-ui-smaller);
 }
 
-.mbv-cal-weeknum.is-heading {
+.views-cal-weeknum.is-heading {
   align-items: flex-end;
   padding-bottom: var(--size-2-2);
   border-right-color: transparent;
@@ -2989,12 +3152,12 @@
   text-transform: uppercase;
 }
 
-.mbv-cal-day {
+.views-cal-day {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: var(--size-2-1);
-  min-height: var(--mbv-cal-cell);
+  min-height: var(--views-cal-cell);
   padding: var(--size-2-2) var(--size-2-1);
   border-radius: var(--radius-m);
   background-color: transparent;
@@ -3002,46 +3165,46 @@
   transition: background-color 120ms ease;
 }
 
-.mbv-cal-day:not(.is-empty) {
+.views-cal-day:not(.is-empty) {
   cursor: pointer;
 }
 
-.mbv-cal-day:not(.is-empty):hover {
+.views-cal-day:not(.is-empty):hover {
   background-color: var(--background-modifier-hover);
 }
 
 /* Spill days from the neighbouring months stay readable but recede, so the
    month's own shape is what the eye picks up first. */
-.mbv-cal-day.is-outside .mbv-cal-number {
+.views-cal-day.is-outside .views-cal-number {
   color: var(--text-faint);
 }
 
-.mbv-cal-day.is-today .mbv-cal-number {
+.views-cal-day.is-today .views-cal-number {
   color: var(--text-accent);
   font-weight: var(--font-bold);
 }
 
-.mbv-cal-day.is-selected {
+.views-cal-day.is-selected {
   background-color: var(--interactive-accent);
 }
 
-.mbv-cal-day.is-selected .mbv-cal-number,
-.mbv-cal-day.is-selected .mbv-cal-more {
+.views-cal-day.is-selected .views-cal-number,
+.views-cal-day.is-selected .views-cal-more {
   color: var(--text-on-accent);
 }
 
-.mbv-cal-day:focus-visible {
+.views-cal-day:focus-visible {
   outline: 2px solid var(--interactive-accent);
   outline-offset: -2px;
 }
 
-.mbv-cal-number {
+.views-cal-number {
   font-size: var(--font-ui-medium);
   font-variant-numeric: tabular-nums;
   line-height: 1.2;
 }
 
-.mbv-cal-marks {
+.views-cal-marks {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3050,30 +3213,30 @@
   min-height: 6px;
 }
 
-.mbv-cal-dot {
+.views-cal-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background-color: var(--mbv-cal-dot-color, var(--text-muted));
+  background-color: var(--views-cal-dot-color, var(--text-muted));
 }
 
 /* The false half of a boolean. It carries the state on its own, so turning
    value colors off still leaves the two apart. */
-.mbv-cal-dot.is-hollow {
-  border: 1.5px solid var(--mbv-cal-dot-color, var(--text-muted));
+.views-cal-dot.is-hollow {
+  border: 1.5px solid var(--views-cal-dot-color, var(--text-muted));
   background-color: transparent;
 }
 
-.mbv-cal-day.is-selected .mbv-cal-dot {
+.views-cal-day.is-selected .views-cal-dot {
   background-color: var(--text-on-accent);
 }
 
-.mbv-cal-day.is-selected .mbv-cal-dot.is-hollow {
+.views-cal-day.is-selected .views-cal-dot.is-hollow {
   border-color: var(--text-on-accent);
   background-color: transparent;
 }
 
-.mbv-cal-more {
+.views-cal-more {
   color: var(--text-faint);
   font-size: var(--font-ui-smaller);
   line-height: 1;
@@ -3081,7 +3244,7 @@
 
 /* Only a number ramp is worth a legend: it is the one encoding whose colors
    mean an amount rather than a value you can read off the note. */
-.mbv-cal-legend {
+.views-cal-legend {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -3090,17 +3253,17 @@
   font-size: var(--font-ui-smaller);
 }
 
-.mbv-cal-legend.is-hidden {
+.views-cal-legend.is-hidden {
   display: none;
 }
 
-.mbv-cal-legend-bar {
+.views-cal-legend-bar {
   width: 96px;
   height: 6px;
   border-radius: 3px;
 }
 
-.mbv-cal-detail {
+.views-cal-detail {
   display: flex;
   flex-direction: column;
   gap: var(--size-2-2);
@@ -3108,30 +3271,30 @@
   border-top: 1px solid var(--background-modifier-border);
 }
 
-.mbv-cal-detail-heading {
+.views-cal-detail-heading {
   display: flex;
   align-items: baseline;
   gap: var(--size-4-2);
 }
 
-.mbv-cal-detail-date {
+.views-cal-detail-date {
   color: var(--text-normal);
   font-weight: var(--font-medium);
 }
 
-.mbv-cal-detail-count,
-.mbv-cal-detail-empty {
+.views-cal-detail-count,
+.views-cal-detail-empty {
   color: var(--text-faint);
   font-size: var(--font-ui-small);
 }
 
-.mbv-cal-detail-list {
+.views-cal-detail-list {
   display: flex;
   flex-direction: column;
   gap: var(--size-2-1);
 }
 
-.mbv-cal-detail-item {
+.views-cal-detail-item {
   display: flex;
   align-items: baseline;
   gap: var(--size-4-2);
@@ -3141,69 +3304,185 @@
   cursor: pointer;
 }
 
-.mbv-cal-detail-item:hover {
+.views-cal-detail-item:hover {
   background-color: var(--background-modifier-hover);
 }
 
-.mbv-cal-detail-item:focus-visible {
+.views-cal-detail-item:focus-visible {
   outline: 2px solid var(--interactive-accent);
   outline-offset: -2px;
 }
 
-.mbv-cal-detail-title {
+.views-cal-detail-title {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-1);
+  min-width: 0;
   color: var(--text-normal);
   font-size: var(--font-ui-small);
 }
 
-.mbv-cal-detail-props {
+.views-cal-detail-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.views-cal-detail-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--icon-xs);
+  height: var(--icon-xs);
+  color: var(--text-muted);
+}
+
+.views-cal-detail-icon svg {
+  width: var(--icon-xs);
+  height: var(--icon-xs);
+}
+
+.views-cal-detail-icon.is-emoji {
+  font-size: var(--icon-xs);
+  line-height: 1;
+}
+
+.views-cal-detail-props {
   display: flex;
   align-items: baseline;
   gap: var(--size-4-2);
   flex-wrap: wrap;
 }
 
-.mbv-cal-prop {
+.views-cal-prop {
   font-size: var(--font-ui-smaller);
 }
 
 /* A narrow leaf drops the day cells to a size where dots still fit but the
    detail rows stack rather than truncate. */
 @container (max-width: 420px) {
-  .mbv-calendar {
-    --mbv-cal-cell: 40px;
+  .views-calendar {
+    --views-cal-cell: 40px;
   }
 
-  .mbv-cal-detail-item {
+  .views-cal-detail-item {
     flex-direction: column;
     align-items: flex-start;
   }
 }
 
-/* Shown while a content filter (Content contains / Has) has a query set but
-   its facts have not resolved yet: the rows on screen are the unfiltered
-   first pass, not the final one, so this reads as "still working" rather
-   than a silently wrong result count. */
-.mbv-ray-content-pending {
-  display: none;
-  align-items: center;
-  gap: var(--size-4-2);
-  padding: var(--size-2-2) var(--size-4-4);
+/* Graph
+   ------------------------------------------------------------------------- */
+
+.views-graph-host {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 320px;
+  overflow: hidden;
+}
+
+.views-graph-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+
+.views-graph-notice {
+  position: absolute;
+  top: var(--size-4-2);
+  left: var(--size-4-2);
+  padding: var(--size-2-2) var(--size-4-2);
+  border-radius: var(--radius-s);
+  background-color: var(--background-secondary);
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
-  border-bottom: 1px solid var(--background-modifier-border);
+  pointer-events: none;
+  display: none;
 }
 
-.mbv-ray-content-pending.is-visible {
+.views-graph-notice.is-visible {
+  display: block;
+}
+
+.views-graph-hovercard {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  display: none;
+  flex-direction: column;
+  gap: var(--size-2-1);
+  max-width: 220px;
+  padding: var(--size-2-3) var(--size-4-2);
+  border-radius: var(--radius-m);
+  background-color: var(--background-secondary);
+  box-shadow: var(--shadow-s);
+  pointer-events: none;
+}
+
+.views-graph-hovercard.is-visible {
   display: flex;
 }
 
-.mbv-ray-content-pending-icon {
-  display: flex;
-  flex: none;
-  animation: mbv-ray-content-pending-spin 0.8s linear infinite;
+.views-graph-hovercard-title {
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-@keyframes mbv-ray-content-pending-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+.views-graph-hovercard-meta {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
 }
+
+.views-graph-depth-controls {
+  position: absolute;
+  top: var(--size-4-2);
+  right: var(--size-4-2);
+  z-index: 1;
+  display: none;
+  align-items: center;
+  gap: var(--size-2-2);
+  padding: var(--size-2-2) var(--size-2-3);
+  border-radius: var(--radius-s);
+  background-color: var(--background-secondary);
+  box-shadow: var(--shadow-s);
+}
+
+.views-graph-depth-controls.is-visible {
+  display: flex;
+}
+
+.views-graph-depth-btn {
+  padding: var(--size-2-1) var(--size-4-2);
+  border: none;
+  border-radius: var(--radius-s);
+  background-color: var(--background-modifier-hover);
+  color: var(--text-normal);
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+}
+
+.views-graph-depth-btn:hover:not(:disabled) {
+  background-color: var(--background-modifier-border);
+}
+
+.views-graph-depth-btn:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+
+.views-graph-depth-label {
+  min-width: 4.5em;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
