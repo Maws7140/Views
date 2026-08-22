@@ -36,6 +36,8 @@ const PURE_MODULES = [
 	'src/graph/graphDepth.ts',
 	'src/graph/radialLayout.ts',
 	'src/graph/rootSelection.ts',
+	'src/graph/treeSource.ts',
+	'src/graph/tidyTree.ts',
 	'src/graph/linkProperties.ts',
 	'src/graph/types.ts',
 	'src/settings/settings.ts',

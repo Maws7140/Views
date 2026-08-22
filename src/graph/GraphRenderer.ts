@@ -8,6 +8,8 @@ import { describeGraphNotice, filterModelForView, filterModelToDepth } from './g
 import { computeDepthsFromRoot } from './graphDepth';
 import { computeRadialLayout } from './radialLayout';
 import { selectRoot } from './rootSelection';
+import { bfsTreeSource, propertyTreeSource, type TreeSourceResult } from './treeSource';
+import { computeTidyTree, type TreeOrientation } from './tidyTree';
 import {
 	DISTANCE_MAX_LINK_FACTOR,
 	MAX_SPEED_LINK_FACTOR,
@@ -93,8 +95,16 @@ export interface GraphColorOptions {
  * the clutter controls below leave standing, laid out by force alone. Focus
  * is the default because it is the case research (and the Capacities
  * reference) says actually stays legible as a base grows; whole base remains
- * available for the small, already-scoped sets where it still reads well. */
-export type GraphMode = 'focus' | 'wholeBase';
+ * available for the small, already-scoped sets where it still reads well.
+ *
+ * 'tree' is the rigid tree: parenthood from `treeSource.ts`, positions from
+ * the tidy tree in `tidyTree.ts`, and orthogonal elbow connectors instead of
+ * straight lines. It is the one mode whose positions are not physics at all,
+ * which is why the simulation is held off entirely under it (see `update`):
+ * a layout that has already decided where every node belongs has nothing to
+ * gain from forces and everything to lose, since the first thing repulsion
+ * does to a set of neatly aligned columns is stop them being columns. */
+export type GraphMode = 'focus' | 'wholeBase' | 'tree';
 
 /** 'tiles' is the reference design (icon on a tint of the type colour,
  * saturated border) and stays the default; 'dots' is Obsidian's plain-circle
@@ -152,6 +162,19 @@ export interface GraphLayoutOptions {
 	 * shapes existed. Ignored in focus mode, which arranges into rings around
 	 * a root and so already has a shape of its own. */
 	shape: LayoutShape;
+	/** "Tree direction": which way the generations march in tree mode. Left
+	 * to right is the default because a vault's trees are usually deep and
+	 * narrow rather than wide and shallow, and a pane scrolls down more
+	 * comfortably than it scrolls across. Ignored outside tree mode. */
+	treeOrientation: TreeOrientation;
+	/** "Hierarchy property": the property whose value names a node's parent,
+	 * or null for the default hop-distance tree. Matched against
+	 * `GraphEdge.property`, so it only means something for a property that is
+	 * already producing edges (a Connect-by slot, or a frontmatter link
+	 * property); see `treeSource.ts` for why parenthood is read off the edges
+	 * rather than re-resolved from frontmatter here. Ignored outside tree
+	 * mode. */
+	hierarchyProperty: BasesPropertyId | null;
 	/** `TFile.path` of the active note, or null. `GraphView` reads this from
 	 * `app.workspace.getActiveFile()`, since that call needs `obsidian` and
 	 * has no business inside this DOM/canvas-only file's root-selection use. */
@@ -172,8 +195,25 @@ const DEFAULT_LAYOUT_OPTIONS: GraphLayoutOptions = {
 	fadeThreshold: DEFAULT_FADE_THRESHOLD,
 	nodeStyle: 'tiles',
 	shape: 'circle',
+	treeOrientation: 'leftToRight',
+	hierarchyProperty: null,
 	activeNotePath: null,
 };
+
+/** Clear space between one generation and the next in tree mode, as a
+ * multiple of the live "Link distance" slider. Wider than one link distance
+ * on purpose: the whole gap between two levels is where the elbow connectors
+ * run, and a channel the reader cannot see the shape of is just a thick
+ * line. Reusing the existing slider rather than adding a tree-only spacing
+ * control follows what `radialLayout.ts` already does with ring spacing. */
+const TREE_LEVEL_GAP_FACTOR = 1.2;
+
+/** Clear space between two adjacent siblings in tree mode, in world units.
+ * Fixed rather than slider-driven because it is a legibility floor (two
+ * tiles and their labels not touching), not a spread control: "Link
+ * distance" already moves the levels apart, which is the axis a tree
+ * actually needs loosening on. */
+const TREE_SIBLING_GAP = 14;
 
 /** Clamps to the depth slider's own range (`GraphView.getViewOptions`, 1 to
  * 3) so a stray config value never asks the radial layout for a ring that
@@ -305,6 +345,19 @@ export class GraphRenderer {
 	private currentRootId: string | null = null;
 	private pinnedRootId: string | null = null;
 
+	/** The parent/child pairs tree mode draws as elbows, in the order they
+	 * should be stroked. Empty outside tree mode.
+	 *
+	 * Tree mode draws these and nothing else, which is a real decision rather
+	 * than an oversight: a base's edge set is a graph, the tree is one
+	 * spanning subset of it, and the edges left over are precisely the ones
+	 * that do not fit the hierarchy on screen. Drawing them too would put
+	 * diagonals across a picture whose entire claim is that every line is
+	 * orthogonal and every generation is a column, which is the same mistake
+	 * as running forces under a fixed layout: it fights the thing being
+	 * built. The relationships are not lost, they are one mode switch away. */
+	private treeEdges: { parent: string; child: string }[] = [];
+
 	/** The exact arguments the last real `update()` call was given, replayed
 	 * by `reroot()` so double-clicking a node reruns the whole pipeline
 	 * (depth, subset, radial layout) as though a fresh `onDataUpdated()` had
@@ -399,8 +452,42 @@ export class GraphRenderer {
 		let seedOverrides: ReadonlyMap<string, { x: number; y: number }> | undefined;
 		let ringRadii: ReadonlyMap<string, number> | null = null;
 		let rootId: string | null = null;
+		/** Non-null only in tree mode, where it is the finished layout rather
+		 * than a seed the simulation is free to move afterwards. */
+		let treeLayout: ReadonlyMap<string, { x: number; y: number }> | null = null;
 
-		if (this.mode === 'focus') {
+		if (this.mode === 'tree') {
+			this.treeEdges = [];
+			rootId = selectRoot({ model: filtered, explicitRootId: this.explicitRootId, activeNotePath: layoutOptions.activeNotePath });
+			if (rootId) {
+				// Both sources cover every node the filters left standing (see
+				// `treeSource.ts`), so unlike focus mode there is no subset to
+				// take here: `depths` is only used to drop anything a source
+				// could not place, which is nothing today and stays correct if
+				// that ever changes.
+				const tree = this.buildTree(filtered, rootId, layoutOptions);
+				effectiveModel = filterModelToDepth(filtered, tree.depths, Number.POSITIVE_INFINITY);
+				treeLayout = computeTidyTree(tree, {
+					orientation: layoutOptions.treeOrientation,
+					// The extents the renderer actually draws at, widened to the
+					// degree scale ceiling so a hub's larger tile does not
+					// overhang the slot the layout reserved for it, and to the
+					// label's own box on whichever axis the labels stack along:
+					// a tree whose tiles clear each other but whose names
+					// overlap is not a tidy tree.
+					nodeWidth: Math.max(TILE_SIZE * DEGREE_SCALE_CEILING, LABEL_MAX_WIDTH),
+					nodeHeight: TILE_SIZE * DEGREE_SCALE_CEILING + LABEL_GAP + LABEL_FONT_SIZE,
+					siblingGap: TREE_SIBLING_GAP,
+					levelGap: layoutOptions.linkDistance * TREE_LEVEL_GAP_FACTOR,
+				});
+				for (const [child, parent] of tree.parent) {
+					if (treeLayout.has(child) && treeLayout.has(parent)) this.treeEdges.push({ parent, child });
+				}
+				seedOverrides = treeLayout;
+			} else {
+				effectiveModel = EMPTY_GRAPH_MODEL;
+			}
+		} else if (this.mode === 'focus') {
 			rootId = selectRoot({ model: filtered, explicitRootId: this.explicitRootId, activeNotePath: layoutOptions.activeNotePath });
 			if (rootId) {
 				const { depths } = computeDepthsFromRoot(filtered, rootId);
@@ -426,6 +513,7 @@ export class GraphRenderer {
 				effectiveModel = EMPTY_GRAPH_MODEL;
 			}
 		}
+		if (this.mode !== 'tree') this.treeEdges = [];
 		this.currentRootId = rootId;
 
 		this.model = effectiveModel;
@@ -461,6 +549,11 @@ export class GraphRenderer {
 			layoutOptions.linkStrength !== this.layoutOptions.linkStrength ||
 			layoutOptions.mode !== this.layoutOptions.mode ||
 			layoutOptions.shape !== this.layoutOptions.shape ||
+			// Both tree inputs count for the same reason a shape change does:
+			// they change where every node belongs without necessarily
+			// changing which nodes there are.
+			layoutOptions.treeOrientation !== this.layoutOptions.treeOrientation ||
+			layoutOptions.hierarchyProperty !== this.layoutOptions.hierarchyProperty ||
 			clampDepth(layoutOptions.depth) !== clampDepth(this.layoutOptions.depth);
 		this.layoutOptions = layoutOptions;
 		this.simulation.setOptions({
@@ -565,14 +658,32 @@ export class GraphRenderer {
 		// positions they were placed at describe an arrangement that no longer
 		// exists, and holding them would leave a node stranded in open space
 		// while everything it related to moved.
-		if (graphChanged || rootChanged || shapeChanged) {
+		if (graphChanged || rootChanged || shapeChanged || treeLayout) {
 			for (const id of this.userPinnedIds) this.simulation.unpin(id);
 			this.userPinnedIds.clear();
 		}
 
+		// Tree mode reseeds unconditionally, and after the unpin above so a
+		// hand-dragged node comes back into line with the rest. `setGraph`
+		// keeps the position of any id that survived, which is right when
+		// positions are physics the layout will settle again and wrong when
+		// they are the answer: flipping the orientation, or switching the
+		// hierarchy property, leaves the node set identical and every node in
+		// the wrong place, and nothing else here would move them.
+		if (treeLayout) this.simulation.reseedAll(treeLayout);
+
 		const isRealChange = graphChanged || layoutOptionsChanged || rootChanged;
+		// Under a tree layout the simulation is not warmed, prewarmed or
+		// stepped at all: every position is already final, so a reheat could
+		// only move nodes off the grid the layout just put them on. This is
+		// the same reasoning that turns centring off under a layout shape,
+		// carried to its end: there, forces and a boundary were two ways of
+		// bounding one layout and only one could be in charge; here the layout
+		// is fully determined, so the forces have nothing left to decide.
+		// `ensureSimulationLoop` refuses to start under this mode as well, so
+		// a drag cannot restart the physics behind this check's back.
 		if (isRealChange) {
-			this.simulation.reheat(1);
+			if (!treeLayout) this.simulation.reheat(1);
 			// Arrive arranged. Without this the first painted frame is the raw
 			// seeding spiral and the user watches the graph untangle itself,
 			// which reads as a mess that sorted itself out rather than as a
@@ -584,7 +695,7 @@ export class GraphRenderer {
 			// sliders are `instant`, so prewarming on those would run a burst
 			// of ticks on every pixel of a drag, and watching the layout
 			// respond is the whole point of dragging one.
-			if (graphChanged || rootChanged || shapeChanged) this.prewarm(effectiveModel.nodes.length);
+			if (!treeLayout && (graphChanged || rootChanged || shapeChanged)) this.prewarm(effectiveModel.nodes.length);
 			// A real change is exactly the moment auto-fit should get another
 			// turn: the graph just moved out from under any prior fit, and the
 			// user has not yet had a chance to react to the new layout, so any
@@ -601,7 +712,10 @@ export class GraphRenderer {
 		// already cold (nothing to animate, e.g. re-showing a graph that was
 		// already settled) would otherwise never reach the auto-fit check in
 		// that loop, so it is resolved once immediately here too.
-		if (isRealChange && !this.simulation.isRunning()) this.maybeAutoFit();
+		// A tree layout never runs the loop that would otherwise resolve this,
+		// so its fit is resolved here every time rather than only when the
+		// simulation happens to be cold.
+		if (isRealChange && (treeLayout !== null || !this.simulation.isRunning())) this.maybeAutoFit();
 
 		// Colors are resolved from the model, not from a frame, so a fresh
 		// assigner and an empty cache belong here rather than in render(): two
@@ -631,6 +745,15 @@ export class GraphRenderer {
 		}));
 		this.refreshDepthControls();
 		this.scheduleRedraw();
+	}
+
+	/** Picks the tree source tree mode lays out: the hierarchy property when
+	 * one is set, hop distance otherwise. Split out of `update` so the choice
+	 * reads as the one decision it is; both sources return the same shape, so
+	 * nothing downstream of here knows which was taken. */
+	private buildTree(model: GraphModel, rootId: string, layoutOptions: GraphLayoutOptions): TreeSourceResult {
+		const property = layoutOptions.hierarchyProperty;
+		return property ? propertyTreeSource(model, property, rootId) : bfsTreeSource(model, rootId);
 	}
 
 	/** Shows the "Show more" / "Show less" cluster only in focus mode with an
@@ -694,8 +817,22 @@ export class GraphRenderer {
 	 * safe to call after every `update()` and every drag pin. */
 	private ensureSimulationLoop(): void {
 		if (this.simFrameHandle !== null) return;
+		// Never under a tree layout: positions there are decided, not settled,
+		// and the only thing a tick could do is undo them. This is the single
+		// gate rather than one check per reheat call site, so a future caller
+		// cannot restart the physics by adding a reheat somewhere new.
+		if (this.mode === 'tree') return;
 		if (!this.simulation.isRunning()) return;
 		const step = () => {
+			// A frame scheduled before the mode changed is still in flight when
+			// tree mode arrives, and one tick is enough to shake a finished
+			// layout apart. Checked here rather than only at scheduling time
+			// because there is no way to un-schedule the frame that is already
+			// on its way.
+			if (this.mode === 'tree') {
+				this.simFrameHandle = null;
+				return;
+			}
 			const stillRunning = this.simulation.tick();
 			this.syncLayoutFromSimulation();
 			if (this.awaitingAutoFit) {
@@ -960,7 +1097,105 @@ export class GraphRenderer {
 		return false;
 	}
 
+	/**
+	 * Tree mode's connectors: orthogonal elbows, one shared channel per
+	 * parent.
+	 *
+	 * The channel is what makes the picture read as an org chart rather than
+	 * as a fan. Each parent's children all leave through one stub on the
+	 * parent's own edge, that stub runs half way to the next generation, and
+	 * the turn happens on a single line shared by every sibling. Giving each
+	 * child its own diagonal (or its own channel at its own offset) produces
+	 * the same information and none of the structure: the shared trunk is the
+	 * visual statement that these nodes are siblings, and it is drawn once
+	 * per child only because a canvas path is cheaper to repeat than to
+	 * deduplicate.
+	 *
+	 * The channel sits on the main axis (horizontal under `leftToRight`,
+	 * vertical under `topDown`) at the midpoint of the gap between the two
+	 * generations, which is why `TREE_LEVEL_GAP_FACTOR` opens that gap wider
+	 * than one link distance: the channel needs room to be seen as a channel.
+	 *
+	 * Both ends are trimmed by the same `nodeInset` straight edges use, so
+	 * "Node style: dots" still lands the line on the dot rather than under a
+	 * tile that is not being drawn, and an arrowhead still marks the child
+	 * end when "Arrows" is on. The arrow is oriented along the final segment
+	 * alone, which is the segment that actually enters the node, so it points
+	 * square into the child the way the reference images do rather than along
+	 * the notional straight line between the two centres.
+	 */
+	private drawTreeEdges(ctx: CanvasRenderingContext2D, dotMode: boolean): void {
+		if (this.treeEdges.length === 0) return;
+		ctx.lineWidth = 1 / this.scale;
+		// Mitred rather than rounded: the corner is the point of an elbow, and
+		// a rounded join at this stroke width reads as a wobble in the line.
+		ctx.lineCap = 'butt';
+		ctx.lineJoin = 'miter';
+		const horizontal = this.layoutOptions.treeOrientation === 'leftToRight';
+
+		for (const { parent, child } of this.treeEdges) {
+			const from = this.layout.get(parent);
+			const to = this.layout.get(child);
+			if (!from || !to) continue;
+
+			const dimmed = this.hoveredId !== null && parent !== this.hoveredId && child !== this.hoveredId;
+			ctx.globalAlpha = dimmed ? DIMMED_ALPHA : 1;
+			ctx.strokeStyle = this.theme.edge;
+
+			const fromInset = this.nodeInset(parent, dotMode);
+			const toInset = this.nodeInset(child, dotMode);
+			// `direction` is +1 when the child sits further along the main axis
+			// than its parent and -1 otherwise. It is always +1 for the layout
+			// as computed, but reading it off the positions rather than
+			// assuming it keeps the elbow correct for a node the user has
+			// dragged somewhere the layout did not put it.
+			const alongFrom = horizontal ? from.x : from.y;
+			const alongTo = horizontal ? to.x : to.y;
+			const direction = alongTo >= alongFrom ? 1 : -1;
+			const exit = alongFrom + fromInset * direction;
+			const entry = alongTo - toInset * direction;
+			const channel = (exit + entry) / 2;
+			const acrossFrom = horizontal ? from.y : from.x;
+			const acrossTo = horizontal ? to.y : to.x;
+
+			ctx.beginPath();
+			if (horizontal) {
+				ctx.moveTo(exit, acrossFrom);
+				ctx.lineTo(channel, acrossFrom);
+				ctx.lineTo(channel, acrossTo);
+				ctx.lineTo(entry, acrossTo);
+			} else {
+				ctx.moveTo(acrossFrom, exit);
+				ctx.lineTo(acrossFrom, channel);
+				ctx.lineTo(acrossTo, channel);
+				ctx.lineTo(acrossTo, entry);
+			}
+			ctx.stroke();
+
+			if (this.layoutOptions.showArrows) {
+				const tip = horizontal ? { x: entry, y: acrossTo } : { x: acrossTo, y: entry };
+				const tail = horizontal ? { x: channel, y: acrossTo } : { x: acrossTo, y: channel };
+				// A child sitting on its parent's own channel line has a
+				// zero-length final segment and no direction to point along, so
+				// the arrow is placed along the main axis instead of being
+				// derived from two identical points.
+				const degenerate = Math.hypot(tip.x - tail.x, tip.y - tail.y) < 0.5;
+				const fallback = horizontal
+					? { x: entry - direction, y: acrossTo }
+					: { x: acrossTo, y: entry - direction };
+				drawArrowhead(ctx, degenerate ? fallback : tail, tip, this.theme.edge);
+			}
+		}
+		ctx.globalAlpha = 1;
+		ctx.lineCap = 'round';
+		ctx.lineJoin = 'round';
+	}
+
 	private drawEdges(ctx: CanvasRenderingContext2D, dotMode: boolean): void {
+		if (this.mode === 'tree') {
+			this.drawTreeEdges(ctx, dotMode);
+			return;
+		}
 		if (!this.model.edges.length) return;
 		// Divided by scale so the stroke stays a constant 1 screen pixel wide
 		// regardless of zoom, rather than thickening as the view zooms in.
@@ -1051,6 +1286,13 @@ export class GraphRenderer {
 	 * where it is placed along the line.
 	 */
 	private drawEdgeLabels(ctx: CanvasRenderingContext2D, visible: boolean): void {
+		// Off in tree mode: these are drawn at an edge's midpoint along a
+		// straight line between two centres, and in that mode no such line
+		// exists to sit on. A label placed there would land in open space,
+		// usually on top of the elbow channel it is not describing. The one
+		// property a tree edge could be labelled with is the hierarchy
+		// property, which is the same word on every edge in the graph.
+		if (this.mode === 'tree') return;
 		if (!visible || !this.layoutOptions.showEdgeLabels || !this.model.edges.length) return;
 		ctx.font = `${EDGE_LABEL_FONT_SIZE}px ${this.theme.fontFamily}`;
 		ctx.textAlign = 'center';
@@ -1371,7 +1613,13 @@ export class GraphRenderer {
 		if (!node) return;
 		event.preventDefault();
 		this.cancelPendingOpen();
-		if (this.mode === 'focus') {
+		// Tree mode re-roots on a double-click for the same reason focus mode
+		// does: its root is chosen the same way, and with a hop-distance tree
+		// the choice of root is the whole shape of the picture. Under a
+		// hierarchy property it moves less (a node that declares a parent
+		// keeps it, per `propertyTreeSource`) but still decides which of the
+		// forest's trees is stacked first.
+		if (this.mode === 'focus' || this.mode === 'tree') {
 			this.reroot(node.id);
 		} else {
 			this.showMenuFor(node, event);
