@@ -1,9 +1,11 @@
 import { CalendarView, CalendarViewType } from '../CalendarView';
 import { CollectionView, CollectionViewType } from '../CollectionView';
+import { GraphView, GraphViewType } from '../GraphView';
 import { HeatmapView, HeatmapViewType } from '../HeatmapView';
 import { KanbanView, KanbanViewType } from '../KanbanView';
 import { SearchView, SearchViewType } from '../SearchView';
 import { TimelineView, TimelineViewType } from '../TimelineView';
+import { TreeView, TreeViewType } from '../TreeView';
 import type ViewsPlugin from '../main';
 
 export interface ViewDefinition {
@@ -59,6 +61,24 @@ export const VIEW_DEFINITIONS: readonly ViewDefinition[] = [
 			icon: 'lucide-gallery-horizontal-end',
 			factory: (controller, containerEl) => new CollectionView(plugin, controller, containerEl),
 			options: CollectionView.getViewOptions,
+		}),
+	},
+	{
+		register: (plugin) => plugin.registerBasesView(GraphViewType, {
+			name: 'Views · Graph',
+			icon: 'lucide-git-fork',
+			factory: (controller, containerEl) => new GraphView(plugin, controller, containerEl),
+			options: GraphView.getViewOptions,
+		}),
+	},
+	{
+		register: (plugin) => plugin.registerBasesView(TreeViewType, {
+			name: 'Views · Tree',
+			// Verified present in Obsidian's bundled Lucide set; `network` and
+			// `workflow` are not, and would have shipped as a blank icon.
+			icon: 'lucide-list-tree',
+			factory: (controller, containerEl) => new TreeView(plugin, controller, containerEl),
+			options: TreeView.getViewOptions,
 		}),
 	},
 ];

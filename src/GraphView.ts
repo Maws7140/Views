@@ -38,12 +38,12 @@ const DEFAULT_CENTER_FORCE = 40;
  * DEFAULT_FORCE_OPTIONS.linkStrength`, for the same reason. */
 const DEFAULT_LINK_FORCE = 50;
 
-/** The stored `mode` value, defaulted to focus. Written as a lookup rather
- * than a chain of ternaries because there are three modes now and a fourth is
- * planned (the organic mind map), and an unknown value has to keep reading
- * back as the default rather than as whichever branch happened to be last. */
+/** The stored `mode` value, defaulted to focus. `tree` is deliberately not
+ * accepted here: the tree is its own view (`TreeView.ts`), not a mode of this
+ * one, and a base saved during the brief window when it was a mode reads back
+ * as focus rather than as a graph that silently refuses to run its physics. */
 function resolveGraphMode(raw: unknown): GraphMode {
-	if (raw === 'wholeBase' || raw === 'tree' || raw === 'focus') return raw;
+	if (raw === 'wholeBase' || raw === 'focus') return raw;
 	return 'focus';
 }
 
@@ -182,38 +182,8 @@ export class GraphView extends BasesView {
 						type: 'dropdown',
 						key: 'mode',
 						default: 'focus',
-						options: { focus: 'Focus on a note', wholeBase: 'Whole base', tree: 'Rigid tree' },
+						options: { focus: 'Focus on a note', wholeBase: 'Whole base' },
 					},
-					{
-						// Tree only. Left to right first because a vault's
-						// hierarchies are usually deep and narrow, and that is
-						// the orientation a pane can scroll comfortably.
-						displayName: 'Tree direction',
-						type: 'dropdown',
-						key: 'treeOrientation',
-						default: 'leftToRight',
-						options: { leftToRight: 'Left to right', topDown: 'Top down' },
-						shouldHide: (config: { get(key: string): unknown }) => config.get('mode') !== 'tree',
-					} as DropdownOption & { shouldHide(config: { get(key: string): unknown }): boolean },
-					{
-						// Tree only, and empty is a real answer rather than an
-						// unset one: with no property named, the tree is built
-						// from link distance, which every base has. Naming one
-						// switches to the hierarchy the vault itself records.
-						// It only means something for a property that is
-						// already drawing edges (a Connect by slot above, or a
-						// frontmatter link property), because parenthood is
-						// read off the edges: see `treeSource.ts` for why
-						// resolving the values a second time here would be a
-						// second implementation free to disagree with the
-						// first.
-						displayName: 'Hierarchy property',
-						type: 'property',
-						key: 'hierarchyProperty',
-						filter: () => true,
-						placeholder: 'Parent of each note',
-						shouldHide: (config: { get(key: string): unknown }) => config.get('mode') !== 'tree',
-					} as PropertyOption & { shouldHide(config: { get(key: string): unknown }): boolean },
 					{
 						displayName: 'Depth',
 						type: 'slider',
@@ -227,8 +197,7 @@ export class GraphView extends BasesView {
 						// it is not yet declared in the public type definitions (see the
 						// identical cast in CollectionView.ts and SearchView.ts).
 						// Focus mode only: whole base has no root to measure
-						// hops from, and the tree draws every generation it
-						// finds rather than a fixed number of them.
+						// hops from.
 						shouldHide: (config: { get(key: string): unknown }) => config.get('mode') !== 'focus',
 					} as SliderOption & { shouldHide(config: { get(key: string): unknown }): boolean },
 					{
@@ -387,11 +356,10 @@ export class GraphView extends BasesView {
 			// A base saved before this option existed carries no `shape` at
 			// all, and reads back as the circle every new base gets.
 			shape: isLayoutShape(this.config.get('shape')) ? this.config.get('shape') as LayoutShape : 'circle',
-			treeOrientation: this.config.get('treeOrientation') === 'topDown' ? 'topDown' : 'leftToRight',
-			// Null, not undefined, when nothing is picked: `GraphRenderer`
-			// branches on it to choose the tree source, and "no property" is
-			// the hop-distance default rather than a missing value.
-			hierarchyProperty: this.config.getAsPropertyId('hierarchyProperty'),
+			// Required by the shared options type and inert here: this view has
+			// no tree mode to reach them from. They belong to `TreeView`.
+			treeOrientation: 'leftToRight',
+			hierarchyProperty: null,
 			// Read here rather than in `GraphRenderer`, which has no business
 			// depending on `obsidian`'s workspace for something as small as one
 			// path string; root selection (`./graph/rootSelection.ts`) only
