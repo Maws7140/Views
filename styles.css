@@ -3486,3 +3486,175 @@
   font-size: var(--font-ui-smaller);
 }
 
+
+/* ---------------------------------------------------------------------------
+   Tree view
+
+   An indented outline, not a canvas. Rows are ordinary flow layout so the pane
+   scrolls, selects and keyboard-navigates the way every other list in Obsidian
+   does, and stays legible at a couple of thousand rows where a diagram would
+   not.
+
+   The guide lines are the load-bearing part. Each row renders one guide cell
+   per ancestor level, and a cell draws its vertical rule only when that
+   ancestor still has a sibling below it. That is what makes the indent read as
+   a connected tree rather than as a column of loose dashes.
+--------------------------------------------------------------------------- */
+
+.views-tree {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--background-primary);
+  color: var(--text-normal);
+}
+
+.views-tree-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2, 8px);
+  padding: var(--size-4-2, 8px) var(--size-4-3, 12px);
+  border-bottom: 1px solid var(--background-modifier-border);
+  flex: 0 0 auto;
+}
+
+.views-tree-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--size-4-1, 4px);
+  border-radius: var(--radius-s, 4px);
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.views-tree-tool:hover {
+  background-color: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.views-tree-filter {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.views-tree-list {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: var(--size-4-2, 8px) 0;
+}
+
+.views-tree-row {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-1, 4px);
+  min-height: 26px;
+  padding-right: var(--size-4-3, 12px);
+  border-radius: var(--radius-s, 4px);
+}
+
+.views-tree-row:hover {
+  background-color: var(--background-modifier-hover);
+}
+
+/* One cell per ancestor level. Fixed width so every row at the same depth
+   lines up exactly, which is what lets the vertical rules join up into
+   continuous lines down the tree. */
+.views-tree-guides {
+  display: flex;
+  flex: 0 0 auto;
+  align-self: stretch;
+}
+
+.views-tree-guide {
+  width: 18px;
+  border-right: 1px solid var(--background-modifier-border);
+}
+
+/* The ancestor at this level has no sibling below, so its line stops here. */
+.views-tree-guide.is-blank {
+  width: 18px;
+  border-right: 1px solid transparent;
+}
+
+.views-tree-twisty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  color: var(--text-faint);
+}
+
+.views-tree-twisty.is-clickable {
+  cursor: pointer;
+  border-radius: var(--radius-s, 4px);
+}
+
+.views-tree-twisty.is-clickable:hover {
+  background-color: var(--background-modifier-border-hover);
+  color: var(--text-normal);
+}
+
+.views-tree-twisty .svg-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.views-tree-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-muted);
+  flex: 0 0 auto;
+}
+
+.views-tree-icon .svg-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.views-tree-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-ui-small);
+  /* Set per row by the type-property palette, and unset otherwise, so an
+     uncoloured tree is plain text rather than everything tinted the same. */
+  color: var(--views-tree-row-color, var(--text-normal));
+}
+
+.views-tree-label.is-openable {
+  cursor: pointer;
+}
+
+.views-tree-label.is-openable:hover {
+  text-decoration: underline;
+}
+
+/* A container row names a value, not a file, so it reads as structure. */
+.views-tree-row[data-kind='container'] > .views-tree-label {
+  font-weight: var(--font-medium, 500);
+}
+
+.views-tree-count {
+  flex: 0 0 auto;
+  min-width: 20px;
+  text-align: right;
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  font-variant-numeric: tabular-nums;
+}
+
+.views-tree-empty {
+  padding: var(--size-4-6, 24px) var(--size-4-4, 16px);
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  text-align: center;
+}

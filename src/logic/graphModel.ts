@@ -186,13 +186,27 @@ function linkDisplayText(ref: GraphReferenceLike): string {
  * whose `Value` wrapper stringifies to the literal text `null` or `undefined`
  * because the underlying property is empty. None of these are a value worth
  * putting on the canvas as a node, only an artifact of stringifying nothing. */
-function isMeaningfulValue(text: string): boolean {
+/** Strips the `[[...]]` wrapper (and any `|alias` or `#heading`) off a value
+ * that was written as a wikilink, so `"[[CS 221]]"` and `CS 221` are asked
+ * about the vault in exactly the same way. Returns null for a value that was
+ * not written as a link, which is then tried as a plain note name anyway.
+ *
+ * Module scope and exported because `src/tree/treeModel.ts` asks the same
+ * question of the same values, and a second implementation there would be
+ * free to disagree with this one about what counts as a link. */
+export function unwrapWikilink(value: string): string | null {
+	const match = /^\[\[([^\]]+)\]\]$/.exec(value.trim());
+	if (!match) return null;
+	return match[1].split('|')[0].split('#')[0].trim();
+}
+
+export function isMeaningfulValue(text: string): boolean {
 	if (text.length === 0) return false;
 	const lower = text.toLowerCase();
 	return lower !== 'null' && lower !== 'undefined';
 }
 
-function stringifyValue(raw: unknown): string {
+export function stringifyValue(raw: unknown): string {
 	if (raw === null || raw === undefined) return '';
 	const text = typeof raw === 'string'
 		? raw.trim()
@@ -205,7 +219,7 @@ function stringifyValue(raw: unknown): string {
 
 /** Frontmatter arrays surface as array-like `Value` objects. Handles a real
  * array, an iterable, or a single scalar uniformly. */
-function stringifyValues(raw: unknown): string[] {
+export function stringifyValues(raw: unknown): string[] {
 	if (raw === null || raw === undefined) return [];
 	if (Array.isArray(raw)) {
 		return raw.map(stringifyValue).filter((value) => value.length > 0);
@@ -387,16 +401,6 @@ export function buildGraphModel(
 		}
 		if (!includeExternalLinks) return null;
 		return ensureUnresolvedNode(linkDisplayText(ref));
-	}
-
-	/** Strips the `[[...]]` wrapper (and any `|alias` or `#heading`) off a value
-	 * that was written as a wikilink, so `"[[CS 221]]"` and `CS 221` are asked
-	 * about the vault in exactly the same way. Returns null for a value that was
-	 * not written as a link, which is then tried as a plain note name anyway. */
-	function unwrapWikilink(value: string): string | null {
-		const match = /^\[\[([^\]]+)\]\]$/.exec(value.trim());
-		if (!match) return null;
-		return match[1].split('|')[0].split('#')[0].trim();
 	}
 
 	/** What a Connect-by value points at: a real note when the value names one,
