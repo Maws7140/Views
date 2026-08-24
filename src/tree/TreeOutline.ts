@@ -120,13 +120,15 @@ export class TreeOutline {
 		for (const node of roots) this.renderNode(node, this.listEl, []);
 	}
 
-	/** Tree language, not graph language. The old view said a base was not
-	 * connected, which was both wrong and unactionable: a tree does not need
-	 * connections, it needs something to nest by. */
+	/** Tree language, not graph language, and it names the control that
+	 * actually fixes the state. The old view said a base was not connected,
+	 * which was wrong and unactionable both: a tree does not need
+	 * connections, it needs something to nest by. Group by is named first
+	 * because it is the base's own control and supplies the outermost level. */
 	private emptyMessage(): string {
 		if (this.query.trim().length > 0) return 'No rows match this filter.';
 		if (this.model.total === 0) return 'This base returned no notes.';
-		return 'Nothing to nest by yet. Pick a property under Nest by, or choose file.folder to use the vault\'s own folders.';
+		return 'Nothing to nest by yet. Set the base\'s Group by, or add a Then nest by property. Grouping by file.folder gives you the vault\'s own folders.';
 	}
 
 	/**

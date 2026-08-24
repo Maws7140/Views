@@ -1,5 +1,5 @@
 import { BasesEntry, BasesPropertyId, BasesView, QueryController, ViewOption } from 'obsidian';
-import { buildTreeModel, type TreeNode, type TreeSortOrder } from './tree/treeModel';
+import { buildTreeModel, type TreeGroup, type TreeNode } from './tree/treeModel';
 import { TreeOutline } from './tree/TreeOutline';
 import { iconViewOptions, readAppearanceConfig, resolveEntryIcons } from './collection/appearance';
 import { isPropertyColorEnabled } from './settings/settings';
@@ -11,7 +11,7 @@ import type ViewsPlugin from './main';
 // `SearchViewType` documents in `SearchView.ts`.
 export const TreeViewType = 'views-tree';
 
-/** How many `Nest by` slots the settings pane offers. Four, matching the
+/** How many `Then nest by` slots the settings pane offers. Four, matching the
  * graph's Connect by slots (`./graph/linkProperties.ts`), because the same
  * argument applies: past three or four levels an outline is deeper than
  * anything a vault actually records, and a fifth empty picker costs every
@@ -68,18 +68,17 @@ export class TreeView extends BasesView {
 				displayName: 'Hierarchy',
 				type: 'group',
 				items: [
-					// Ordered slots rather than a fixed list of hierarchy kinds.
-					// Which hierarchy a vault has is the vault's business: this
-					// one is mostly folders, another is `parent` chains, a third
-					// is status over class. Each slot adds one level of
-					// containers and notes sit at the innermost, so `status`
-					// then `class` is as legal as `file.folder` alone.
+					// The base's own Group by supplies the outermost level, so
+					// these start at the second: "then nest by". Ordered slots
+					// rather than a fixed list of hierarchy kinds, because which
+					// hierarchy a vault has is the vault's business, and one vault
+					// is folders where another is status over class.
 					...nestBySlotKeys().map((key, index) => ({
-						displayName: `Nest by ${index + 1}`,
+						displayName: `Then nest by ${index + 1}`,
 						type: 'property' as const,
 						key,
 						filter: () => true,
-						placeholder: index === 0 ? 'file.folder for the vault\'s folders' : 'Optional',
+						placeholder: 'Nests inside the base\'s Group by',
 					})),
 					{
 						// Split is what turns a path into levels. Without it
@@ -144,13 +143,6 @@ export class TreeView extends BasesView {
 						step: 1,
 						instant: true,
 					},
-					{
-						displayName: 'Sort within level',
-						type: 'dropdown',
-						key: 'sortOrder',
-						default: 'name',
-						options: { name: 'Name', count: 'Note count', modified: 'Last modified' },
-					},
 				],
 			},
 		];
@@ -161,13 +153,11 @@ export class TreeView extends BasesView {
 		const typeProperty = this.config.getAsPropertyId('typeProperty');
 		const appearance = readAppearanceConfig(this.config);
 
-		const model = buildTreeModel(entries, {
+		const model = buildTreeModel(this.groups(), {
 			nestBy: this.nestByProperties(),
 			parentProperty: this.config.getAsPropertyId('parentProperty'),
 			splitNestedValues: this.config.get('splitNestedValues') !== false,
 			mergeFolderNotes: this.config.get('mergeFolderNotes') !== false,
-			sortOrder: this.sortOrder(),
-			modifiedTimes: this.modifiedTimes(entries),
 			// The one piece that genuinely needs `obsidian`, which is why
 			// `treeModel.ts` takes it as a parameter and stays pure.
 			resolveNotePath: (linkpath, sourcePath) => (
@@ -186,6 +176,28 @@ export class TreeView extends BasesView {
 		}, this.restoredExpansion());
 	}
 
+	/**
+	 * The base's own groups, which is where the tree's outermost level comes
+	 * from.
+	 *
+	 * `groupedData` is the Bases API's authoritative render projection: Group
+	 * by, Sort by, the filters and the results limit are all already applied to
+	 * it, and it returns one keyless group when the base has no grouping.
+	 * Reading it here rather than rebuilding any of those four as options of
+	 * our own is what makes the tree answer to the same menus every other Bases
+	 * view answers to. `CollectionView.getVisibleGroups` carries the same note,
+	 * having shipped the other way once and flattened every grid into a single
+	 * group.
+	 */
+	private groups(): TreeGroup[] {
+		return (this.data?.groupedData ?? [])
+			.filter((group) => group.entries.length > 0)
+			.map((group) => ({
+				key: group.key?.isTruthy() ? group.key.toString() : null,
+				entries: group.entries,
+			}));
+	}
+
 	/** The slot values, in order, blanks dropped so an empty slot 2 does not
 	 * stop slot 3 from contributing a level. Falls back to the legacy
 	 * `hierarchyProperty` key when no slot is set, so a base saved by the
@@ -198,24 +210,6 @@ export class TreeView extends BasesView {
 
 		const legacy = this.config.getAsPropertyId('hierarchyProperty');
 		return legacy !== null && String(legacy).length > 0 ? [legacy] : [];
-	}
-
-	private sortOrder(): TreeSortOrder {
-		const raw = this.config.get('sortOrder');
-		return raw === 'count' || raw === 'modified' ? raw : 'name';
-	}
-
-	/** Only built when it is going to be read, because `sortOrder: 'modified'`
-	 * is the one order that needs it and reading `stat` per entry is not free
-	 * on a base of a couple of thousand notes. */
-	private modifiedTimes(entries: BasesEntry[]): Map<string, number> | undefined {
-		if (this.sortOrder() !== 'modified') return undefined;
-		const times = new Map<string, number>();
-		for (const entry of entries) {
-			const file = this.app.vault.getFileByPath(entry.file.path);
-			if (file) times.set(entry.file.path, file.stat.mtime);
-		}
-		return times;
 	}
 
 	/** Rows are coloured through the same assigner a table or a Kanban board

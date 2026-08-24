@@ -1,7 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { BasesPropertyId } from 'obsidian';
-import { buildTreeModel, filterTree, type TreeModelOptions, type TreeNode } from '../../src/tree/treeModel';
+import { buildTreeModel, filterTree, type TreeGroup, type TreeModelOptions, type TreeNode } from '../../src/tree/treeModel';
+
+/** Most tests exercise nesting inside a base with no Group by, which is what
+ * Bases hands over as a single keyless group. `grouped` below covers the case
+ * where the base does group. */
+function ungrouped(entries: TreeGroup['entries']): TreeGroup[] {
+	return [{ key: null, entries }];
+}
+
+function grouped(groups: [string | null, TreeGroup['entries']][]): TreeGroup[] {
+	return groups.map(([key, entries]) => ({ key, entries }));
+}
 
 interface Fixture {
 	path: string;
@@ -26,7 +37,6 @@ function options(overrides: Partial<TreeModelOptions> = {}): TreeModelOptions {
 		parentProperty: null,
 		splitNestedValues: true,
 		mergeFolderNotes: true,
-		sortOrder: 'name',
 		...overrides,
 	};
 }
@@ -60,40 +70,41 @@ const status = 'note.status' as BasesPropertyId;
 const parent = 'note.parent' as BasesPropertyId;
 
 test('a folder path splits into one level per segment rather than one flat row', () => {
-	const model = buildTreeModel([
+	const model = buildTreeModel(ungrouped([
 		entry({ path: 'Skoo/CS 360/notes.md', values: { 'file.folder': 'Skoo/CS 360' } }),
 		entry({ path: 'Skoo/Math 230/notes.md', values: { 'file.folder': 'Skoo/Math 230' } }),
-	], options({ nestBy: [folder] }));
+	]), options({ nestBy: [folder] }));
 
 	assert.deepEqual(labels(model.roots), ['Skoo']);
 	assert.deepEqual(labels(model.roots[0].children), ['CS 360', 'Math 230']);
 });
 
 test('splitting off produces one row per distinct full value, which is the table shape', () => {
-	const model = buildTreeModel([
+	const model = buildTreeModel(ungrouped([
 		entry({ path: 'Skoo/CS 360/notes.md', values: { 'file.folder': 'Skoo/CS 360' } }),
-	], options({ nestBy: [folder], splitNestedValues: false }));
+	]), options({ nestBy: [folder], splitNestedValues: false }));
 
 	assert.deepEqual(labels(model.roots), ['Skoo/CS 360']);
 });
 
 test('the same segment under two different parents stays two rows', () => {
-	const model = buildTreeModel([
+	const model = buildTreeModel(ungrouped([
 		entry({ path: 'Skoo/Daily/a.md', values: { 'file.folder': 'Skoo/Daily' } }),
 		entry({ path: 'Meta/Daily/b.md', values: { 'file.folder': 'Meta/Daily' } }),
-	], options({ nestBy: [folder] }));
+	]), options({ nestBy: [folder] }));
 
-	assert.deepEqual(labels(model.roots), ['Meta', 'Skoo']);
+	// Insertion order, not alphabetical: Sort by is the base's control.
+	assert.deepEqual(labels(model.roots), ['Skoo', 'Meta']);
 	assert.deepEqual(labels(model.roots[0].children), ['Daily']);
 	assert.deepEqual(labels(model.roots[1].children), ['Daily']);
 	assert.notEqual(model.roots[0].children[0].id, model.roots[1].children[0].id);
 });
 
 test('a link value nests under the real note when the base returned it, not a twin beside it', () => {
-	const model = buildTreeModel([
+	const model = buildTreeModel(ungrouped([
 		entry({ path: 'Skoo/CS 360/CS 360.md' }),
 		entry({ path: 'Skoo/CS 360/hw1.md', values: { 'note.class': '[[CS 360]]' } }),
-	], options({
+	]), options({
 		nestBy: [clazz],
 		resolveNotePath: (linkpath) => (linkpath === 'CS 360' ? 'Skoo/CS 360/CS 360.md' : null),
 	}));
@@ -106,19 +117,19 @@ test('a link value nests under the real note when the base returned it, not a tw
 });
 
 test('a link that resolves to nothing still nests, under its own text', () => {
-	const model = buildTreeModel([
+	const model = buildTreeModel(ungrouped([
 		entry({ path: 'a.md', values: { 'note.class': '[[Missing]]' } }),
-	], options({ nestBy: [clazz], resolveNotePath: () => null }));
+	]), options({ nestBy: [clazz], resolveNotePath: () => null }));
 
 	assert.deepEqual(labels(model.roots), ['Missing']);
 	assert.equal(model.roots[0].path, undefined);
 });
 
 test('a folder note becomes its folder row instead of a child of it', () => {
-	const model = buildTreeModel([
+	const model = buildTreeModel(ungrouped([
 		entry({ path: 'Skoo/CS 360/CS 360.md', values: { 'file.folder': 'Skoo/CS 360' } }),
 		entry({ path: 'Skoo/CS 360/hw1.md', values: { 'file.folder': 'Skoo/CS 360' } }),
-	], options({ nestBy: [folder] }));
+	]), options({ nestBy: [folder] }));
 
 	const course = find(model.roots, 'CS 360');
 	assert.equal(course.path, 'Skoo/CS 360/CS 360.md');
@@ -126,10 +137,10 @@ test('a folder note becomes its folder row instead of a child of it', () => {
 });
 
 test('merging off leaves the folder note as an ordinary child', () => {
-	const model = buildTreeModel([
+	const model = buildTreeModel(ungrouped([
 		entry({ path: 'Skoo/CS 360/CS 360.md', values: { 'file.folder': 'Skoo/CS 360' } }),
 		entry({ path: 'Skoo/CS 360/hw1.md', values: { 'file.folder': 'Skoo/CS 360' } }),
-	], options({ nestBy: [folder], mergeFolderNotes: false }));
+	]), options({ nestBy: [folder], mergeFolderNotes: false }));
 
 	const course = find(model.roots, 'CS 360');
 	assert.equal(course.path, undefined);
@@ -137,20 +148,20 @@ test('merging off leaves the folder note as an ordinary child', () => {
 });
 
 test('slots nest in order, outermost first', () => {
-	const model = buildTreeModel([
+	const model = buildTreeModel(ungrouped([
 		entry({ path: 'a.md', values: { 'note.status': 'open', 'note.class': 'CS 360' } }),
 		entry({ path: 'b.md', values: { 'note.status': 'open', 'note.class': 'Math 230' } }),
 		entry({ path: 'c.md', values: { 'note.status': 'done', 'note.class': 'CS 360' } }),
-	], options({ nestBy: [status, clazz] }));
+	]), options({ nestBy: [status, clazz] }));
 
-	assert.deepEqual(labels(model.roots), ['done', 'open']);
+	assert.deepEqual(labels(model.roots), ['open', 'done']);
 	assert.deepEqual(labels(find(model.roots, 'open').children), ['CS 360', 'Math 230']);
 });
 
 test('a note missing one slot value still nests by the remaining slots', () => {
-	const model = buildTreeModel([
+	const model = buildTreeModel(ungrouped([
 		entry({ path: 'a.md', values: { 'note.class': 'CS 360' } }),
-	], options({ nestBy: [status, clazz] }));
+	]), options({ nestBy: [status, clazz] }));
 
 	// No status, so the status level contributes nothing and class still does.
 	assert.deepEqual(labels(model.roots), ['CS 360']);
@@ -158,21 +169,21 @@ test('a note missing one slot value still nests by the remaining slots', () => {
 });
 
 test('a note no level can place surfaces at the root rather than vanishing', () => {
-	const model = buildTreeModel([
+	const model = buildTreeModel(ungrouped([
 		entry({ path: 'placed.md', values: { 'note.status': 'open' } }),
 		entry({ path: 'unplaceable.md' }),
-	], options({ nestBy: [status] }));
+	]), options({ nestBy: [status] }));
 
 	assert.deepEqual(labels(model.roots), ['open', 'unplaceable']);
 	assert.equal(model.total, 2, 'every note the base returned is accounted for');
 });
 
 test('note counts are notes, not rows, and sum up the tree', () => {
-	const model = buildTreeModel([
+	const model = buildTreeModel(ungrouped([
 		entry({ path: 'Skoo/CS 360/a.md', values: { 'file.folder': 'Skoo/CS 360' } }),
 		entry({ path: 'Skoo/CS 360/b.md', values: { 'file.folder': 'Skoo/CS 360' } }),
 		entry({ path: 'Skoo/Math 230/c.md', values: { 'file.folder': 'Skoo/Math 230' } }),
-	], options({ nestBy: [folder] }));
+	]), options({ nestBy: [folder] }));
 
 	assert.equal(find(model.roots, 'Skoo').noteCount, 3);
 	assert.equal(find(model.roots, 'CS 360').noteCount, 2);
@@ -181,11 +192,11 @@ test('note counts are notes, not rows, and sum up the tree', () => {
 
 test('a parent property builds a recursive chain three levels deep', () => {
 	const paths = new Map([['a', 'a.md'], ['b', 'b.md'], ['c', 'c.md']]);
-	const model = buildTreeModel([
+	const model = buildTreeModel(ungrouped([
 		entry({ path: 'a.md' }),
 		entry({ path: 'b.md', values: { 'note.parent': '[[a]]' } }),
 		entry({ path: 'c.md', values: { 'note.parent': '[[b]]' } }),
-	], options({ parentProperty: parent, resolveNotePath: (link) => paths.get(link) ?? null }));
+	]), options({ parentProperty: parent, resolveNotePath: (link) => paths.get(link) ?? null }));
 
 	assert.deepEqual(labels(model.roots), ['a']);
 	assert.deepEqual(labels(model.roots[0].children), ['b']);
@@ -194,10 +205,10 @@ test('a parent property builds a recursive chain three levels deep', () => {
 
 test('a parent cycle is broken rather than looping, and every note survives', () => {
 	const paths = new Map([['a', 'a.md'], ['b', 'b.md']]);
-	const model = buildTreeModel([
+	const model = buildTreeModel(ungrouped([
 		entry({ path: 'a.md', values: { 'note.parent': '[[b]]' } }),
 		entry({ path: 'b.md', values: { 'note.parent': '[[a]]' } }),
-	], options({ parentProperty: parent, resolveNotePath: (link) => paths.get(link) ?? null }));
+	]), options({ parentProperty: parent, resolveNotePath: (link) => paths.get(link) ?? null }));
 
 	assert.equal(model.total, 2);
 	// One of the two links wins and the other is refused; which one is stable,
@@ -214,58 +225,95 @@ test('a parent cycle is broken rather than looping, and every note survives', ()
 });
 
 test('a self-referential hub is not made its own parent', () => {
-	const model = buildTreeModel([
+	const model = buildTreeModel(ungrouped([
 		entry({ path: 'Skoo/CS 360/CS 360.md', values: { 'note.parent': '[[CS 360]]' } }),
-	], options({ parentProperty: parent, resolveNotePath: () => 'Skoo/CS 360/CS 360.md' }));
+	]), options({ parentProperty: parent, resolveNotePath: () => 'Skoo/CS 360/CS 360.md' }));
 
 	assert.deepEqual(labels(model.roots), ['CS 360']);
 	assert.equal(model.roots[0].children.length, 0);
 });
 
 test('only the first value of a multi-valued property is used, so counts still sum', () => {
-	const model = buildTreeModel([
+	const model = buildTreeModel(ungrouped([
 		entry({ path: 'a.md', values: { 'note.class': ['CS 360', 'Math 230'] } }),
-	], options({ nestBy: [clazz] }));
+	]), options({ nestBy: [clazz] }));
 
 	assert.deepEqual(labels(model.roots), ['CS 360']);
 	assert.equal(model.roots[0].noteCount, 1);
 });
 
 test('the same input builds the same tree twice', () => {
-	const build = () => buildTreeModel([
+	const build = () => buildTreeModel(ungrouped([
 		entry({ path: 'Skoo/CS 360/b.md', values: { 'file.folder': 'Skoo/CS 360' } }),
 		entry({ path: 'Skoo/Math 230/a.md', values: { 'file.folder': 'Skoo/Math 230' } }),
 		entry({ path: 'loose.md' }),
-	], options({ nestBy: [folder] }));
+	]), options({ nestBy: [folder] }));
 
 	const shape = (nodes: TreeNode[]): unknown => nodes.map((node) => [node.id, shape(node.children)]);
 	assert.deepEqual(shape(build().roots), shape(build().roots));
 });
 
-test('sorting by count puts the fattest container first', () => {
-	const model = buildTreeModel([
-		entry({ path: 'Skoo/CS 360/a.md', values: { 'file.folder': 'Skoo/CS 360' } }),
-		entry({ path: 'Skoo/CS 360/b.md', values: { 'file.folder': 'Skoo/CS 360' } }),
-		entry({ path: 'Skoo/Math 230/c.md', values: { 'file.folder': 'Skoo/Math 230' } }),
-	], options({ nestBy: [folder], sortOrder: 'count' }));
+test('row order follows the base, which already applied Sort by', () => {
+	// Bases hands entries over already sorted, so the tree must not re-sort
+	// them: containers appear in the order their first note appears.
+	const model = buildTreeModel(ungrouped([
+		entry({ path: 'Skoo/Zebra/a.md', values: { 'file.folder': 'Skoo/Zebra' } }),
+		entry({ path: 'Skoo/Alpha/b.md', values: { 'file.folder': 'Skoo/Alpha' } }),
+	]), options({ nestBy: [folder] }));
 
-	assert.deepEqual(labels(find(model.roots, 'Skoo').children), ['CS 360', 'Math 230']);
+	assert.deepEqual(labels(find(model.roots, 'Skoo').children), ['Zebra', 'Alpha']);
 });
 
-test('containers sort above notes at the same level', () => {
-	const model = buildTreeModel([
-		entry({ path: 'zzz.md', values: { 'note.status': 'open' } }),
+test('a note ordered before a container by the base stays before it', () => {
+	const model = buildTreeModel(ungrouped([
 		entry({ path: 'loose.md' }),
-	], options({ nestBy: [status] }));
+		entry({ path: 'grouped.md', values: { 'note.status': 'open' } }),
+	]), options({ nestBy: [status] }));
 
-	assert.deepEqual(labels(model.roots), ['open', 'loose']);
+	assert.deepEqual(labels(model.roots), ['loose', 'open']);
 });
+
+test('the base Group by supplies the outermost level', () => {
+	const model = buildTreeModel(grouped([
+		['open', [entry({ path: 'a.md' })]],
+		['done', [entry({ path: 'b.md' })]],
+	]), options());
+
+	assert.deepEqual(labels(model.roots), ['open', 'done']);
+	assert.deepEqual(labels(model.roots[0].children), ['a']);
+});
+
+test('a group key splits on slashes, so grouping by file.folder is a folder tree', () => {
+	const model = buildTreeModel(grouped([
+		['Skoo/CS 360', [entry({ path: 'Skoo/CS 360/a.md' })]],
+		['Skoo/Math 230', [entry({ path: 'Skoo/Math 230/b.md' })]],
+	]), options());
+
+	assert.deepEqual(labels(model.roots), ['Skoo']);
+	assert.deepEqual(labels(model.roots[0].children), ['CS 360', 'Math 230']);
+});
+
+test('a group key and a nest-by slot compose, group outermost', () => {
+	const model = buildTreeModel(grouped([
+		['Skoo', [entry({ path: 'a.md', values: { 'note.class': 'CS 360' } })]],
+	]), options({ nestBy: [clazz] }));
+
+	assert.deepEqual(labels(model.roots), ['Skoo']);
+	assert.deepEqual(labels(model.roots[0].children), ['CS 360']);
+	assert.deepEqual(labels(model.roots[0].children[0].children), ['a']);
+});
+
+test('a keyless group adds no level, which is what no Group by looks like', () => {
+	const model = buildTreeModel(grouped([[null, [entry({ path: 'a.md' })]]]), options());
+	assert.deepEqual(labels(model.roots), ['a']);
+});
+
 
 test('filtering keeps ancestors of a match so a deep hit stays in context', () => {
-	const model = buildTreeModel([
+	const model = buildTreeModel(ungrouped([
 		entry({ path: 'Skoo/CS 360/damascus.md', values: { 'file.folder': 'Skoo/CS 360' } }),
 		entry({ path: 'Skoo/Math 230/other.md', values: { 'file.folder': 'Skoo/Math 230' } }),
-	], options({ nestBy: [folder] }));
+	]), options({ nestBy: [folder] }));
 
 	const filtered = filterTree(model.roots, 'damascus');
 	assert.deepEqual(labels(filtered), ['Skoo']);
@@ -274,30 +322,30 @@ test('filtering keeps ancestors of a match so a deep hit stays in context', () =
 });
 
 test('filtering does not mutate the model, so backspace restores the full tree', () => {
-	const model = buildTreeModel([
+	const model = buildTreeModel(ungrouped([
 		entry({ path: 'Skoo/CS 360/a.md', values: { 'file.folder': 'Skoo/CS 360' } }),
 		entry({ path: 'Skoo/Math 230/b.md', values: { 'file.folder': 'Skoo/Math 230' } }),
-	], options({ nestBy: [folder] }));
+	]), options({ nestBy: [folder] }));
 
 	filterTree(model.roots, 'CS');
 	assert.deepEqual(labels(find(model.roots, 'Skoo').children), ['CS 360', 'Math 230']);
 });
 
 test('no nesting slots is a flat list of notes, not an error', () => {
-	const model = buildTreeModel([
+	const model = buildTreeModel(ungrouped([
 		entry({ path: 'a.md' }),
 		entry({ path: 'b.md' }),
-	], options());
+	]), options());
 
 	assert.deepEqual(labels(model.roots), ['a', 'b']);
 	assert.equal(model.total, 2);
 });
 
 test('the same value under two different parents is two containers, not one shared bucket', () => {
-	const model = buildTreeModel([
+	const model = buildTreeModel(ungrouped([
 		entry({ path: 'a.md', values: { 'note.status': 'open', 'note.class': 'CS 360' } }),
 		entry({ path: 'b.md', values: { 'note.status': 'done', 'note.class': 'CS 360' } }),
-	], options({ nestBy: [status, clazz] }));
+	]), options({ nestBy: [status, clazz] }));
 
 	const open = find(model.roots, 'open');
 	const done = find(model.roots, 'done');

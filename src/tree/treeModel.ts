@@ -86,11 +86,22 @@ export interface TreeEntryLike {
  * stay free of `obsidian`. */
 export type ResolveNotePath = (linkpath: string, sourcePath: string) => string | null;
 
-export type TreeSortOrder = 'name' | 'count' | 'modified';
+/**
+ * One of the base's own groups, as `BasesQueryResult.groupedData` returns
+ * them: already grouped, filtered, sorted and limited by Bases. `key` is the
+ * stringified group value, or null when the base has no Group by, in which
+ * case Bases hands back a single keyless group and the nesting slots below do
+ * all the work.
+ */
+export interface TreeGroup {
+	key: string | null;
+	entries: TreeEntryLike[];
+}
 
 export interface TreeModelOptions {
-	/** The ordered nesting slots. Empty means a flat list of notes, which is a
-	 * legitimate answer rather than an error state. */
+	/** Nesting levels *inside* each of the base's groups. The base's own Group
+	 * by supplies the outermost level, so these start at the second. Empty is
+	 * a legitimate answer, not an error state. */
 	nestBy: BasesPropertyId[];
 	/** Optional self-referencing note-to-note property (`parent`, `up`), which
 	 * builds a genuine recursive chain inside the innermost nesting level.
@@ -105,52 +116,80 @@ export interface TreeModelOptions {
 	 * that use folder notes have one for nearly every folder, and without this
 	 * every folder shows a same-named child inside itself. */
 	mergeFolderNotes: boolean;
-	sortOrder: TreeSortOrder;
-	/** `file.mtime` per path, for `sortOrder: 'modified'`. Missing entries sort
-	 * last rather than throwing. */
-	modifiedTimes?: Map<string, number>;
 	resolveNotePath?: ResolveNotePath;
 }
 
-export function buildTreeModel(entries: TreeEntryLike[], options: TreeModelOptions): TreeModel {
+/**
+ * Builds the tree from the base's own groups.
+ *
+ * Grouping, sorting, filtering and the results limit are Bases features and
+ * stay Bases features: `groupedData` arrives with all four already applied,
+ * and this walks it in the order it is given. Rebuilding any of them as a view
+ * option would produce a second answer free to disagree with the Group by and
+ * Sort by menus the user already set, which is the bug `CollectionView.ts`
+ * documents having shipped once already.
+ *
+ * So there is no sort here. Containers appear in the order their first note
+ * appears, which is the base's sort order, and a level's rows follow it.
+ */
+export function buildTreeModel(groups: TreeGroup[], options: TreeModelOptions): TreeModel {
 	const byId = new Map<string, TreeNode>();
 	const roots: TreeNode[] = [];
 
-	const noteIds = new Set(entries.map((entry) => entry.file.path));
+	const noteIds = new Set<string>();
+	let total = 0;
+	for (const group of groups) {
+		for (const entry of group.entries) {
+			noteIds.add(entry.file.path);
+			total += 1;
+		}
+	}
 
-	for (const entry of entries) {
-		// Where this note's chain of containers ends, and therefore where the
-		// note itself is attached. Starts at the roots, descends one level per
-		// nesting slot that produced a value.
-		let siblings = roots;
-		let parent: TreeNode | null = null;
-		let depth = 0;
+	for (const group of groups) {
+		for (const entry of group.entries) {
+			// Where this note's chain of containers ends, and therefore where
+			// the note itself is attached. Starts at the roots and descends one
+			// level per container the group key and the slots produce.
+			let siblings = roots;
+			let parent: TreeNode | null = null;
+			let depth = 0;
 
-		for (let level = 0; level < options.nestBy.length; level += 1) {
-			const segments = containerSegments(entry, options.nestBy[level], options, noteIds);
-			// A note the level cannot place is not dropped and is not an
-			// orphan. It stays where it is and the remaining levels still get
-			// their turn, so a note missing `status` still nests by `class`.
-			for (const segment of segments) {
-				const container = ensureContainer(siblings, byId, segment, depth, level, parent);
+			// The base's Group by is the outermost level. It splits on `/` like
+			// any other value, which is what makes `groupBy: file.folder`
+			// produce a real folder tree rather than one flat row per path.
+			for (const segment of valueSegments(group.key, options)) {
+				const container = ensureContainer(siblings, byId, segment, depth, 0, parent);
 				parent = container;
 				siblings = container.children;
 				depth += 1;
 			}
-		}
 
-		attachNote(entry, siblings, parent, byId, depth, options);
+			for (let level = 0; level < options.nestBy.length; level += 1) {
+				const segments = containerSegments(entry, options.nestBy[level], options, noteIds);
+				// A note a level cannot place is not dropped and is not an
+				// orphan. It stays where it is and the remaining levels still
+				// get their turn, so a note missing `status` still nests by
+				// `class`.
+				for (const segment of segments) {
+					const container = ensureContainer(siblings, byId, segment, depth, level + 1, parent);
+					parent = container;
+					siblings = container.children;
+					depth += 1;
+				}
+			}
+
+			attachNote(entry, siblings, parent, byId, depth, options);
+		}
 	}
 
 	mergeResolvedNoteRows(roots, byId);
 
 	if (options.parentProperty !== null) {
-		applyParentProperty(entries, roots, byId, options);
+		applyParentProperty(groups.flatMap((group) => group.entries), roots, byId, options);
 	}
 
 	countNotes(roots);
-	sortTree(roots, options);
-	return { roots, byId, total: entries.length };
+	return { roots, byId, total };
 }
 
 interface ContainerSegment {
@@ -198,14 +237,29 @@ function containerSegments(
 		return [{ key: `value:${linkpath}`, label: linkpath, value: raw }];
 	}
 
-	const text = linkpath ?? raw;
+	return valueSegments(linkpath ?? raw, options);
+}
+
+/**
+ * A plain value's containers, splitting on `/` into one level per segment.
+ *
+ * Shared by the base's group key and by every nesting slot, so `file.folder`
+ * behaves the same whether the user reached it through Group by or through a
+ * slot. Without the split a path gives one flat row per distinct full value,
+ * which is the shape of a table rather than of a tree.
+ */
+function valueSegments(raw: string | null, options: TreeModelOptions): ContainerSegment[] {
+	if (raw === null) return [];
+	const text = raw.trim();
+	if (!isMeaningfulValue(text)) return [];
+
 	if (!options.splitNestedValues || !text.includes('/')) {
 		return [{ key: `value:${text}`, label: text, value: text }];
 	}
 
-	// Split, and key each segment by its full prefix rather than by its own
-	// text, so `Skoo/Daily` and `Meta/Daily` produce two different `Daily`
-	// rows under two different parents instead of colliding into one.
+	// Key each segment by its full prefix rather than by its own text, so
+	// `Skoo/Daily` and `Meta/Daily` produce two different `Daily` rows under
+	// two different parents instead of colliding into one.
 	const parts = text.split('/').map((part) => part.trim()).filter((part) => part.length > 0);
 	const segments: ContainerSegment[] = [];
 	let prefix = '';
@@ -416,35 +470,6 @@ function countNotes(nodes: TreeNode[]): number {
 		total += node.noteCount;
 	}
 	return total;
-}
-
-function sortTree(nodes: TreeNode[], options: TreeModelOptions): void {
-	nodes.sort((a, b) => compareNodes(a, b, options));
-	for (const node of nodes) sortTree(node.children, options);
-}
-
-/** Containers before notes at the same level, so a folder's subfolders are not
- * buried among its files, then by the chosen order, then by label so the same
- * input always produces the same tree. */
-function compareNodes(a: TreeNode, b: TreeNode, options: TreeModelOptions): number {
-	const aContainer = a.children.length > 0 ? 0 : 1;
-	const bContainer = b.children.length > 0 ? 0 : 1;
-	if (aContainer !== bContainer) return aContainer - bContainer;
-
-	if (options.sortOrder === 'count' && a.noteCount !== b.noteCount) {
-		return b.noteCount - a.noteCount;
-	}
-	if (options.sortOrder === 'modified') {
-		const aTime = timeOf(a, options);
-		const bTime = timeOf(b, options);
-		if (aTime !== bTime) return bTime - aTime;
-	}
-	return a.label.localeCompare(b.label);
-}
-
-function timeOf(node: TreeNode, options: TreeModelOptions): number {
-	if (node.path === undefined || !options.modifiedTimes) return 0;
-	return options.modifiedTimes.get(node.path) ?? 0;
 }
 
 function basename(path: string): string {
