@@ -356,3 +356,29 @@ test('the same value under two different parents is two containers, not one shar
 	assert.deepEqual(labels(open.children[0].children), ['a']);
 	assert.deepEqual(labels(done.children[0].children), ['b']);
 });
+
+test('a row chain names what the row is, so it survives a hierarchy reorder', () => {
+	// `id` encodes level indices and changes when levels are reordered, which
+	// is why persisted expansion state is keyed on `chain` instead.
+	const byGroup = buildTreeModel(grouped([['Skoo/CS 360', [entry({ path: 'a.md' })]]]), options());
+	const bySlot = buildTreeModel(ungrouped([
+		entry({ path: 'a.md', values: { 'file.folder': 'Skoo/CS 360' } }),
+	]), options({ nestBy: [folder] }));
+
+	const chains = (nodes: TreeNode[]): string[] => nodes.flatMap((n) => [n.chain, ...chains(n.children)]);
+	assert.deepEqual(chains(byGroup.roots), ['Skoo', 'Skoo/CS 360', 'a.md']);
+	// Same rows, reached through a different level, same chains.
+	assert.deepEqual(chains(bySlot.roots), chains(byGroup.roots));
+	// The ids, by contrast, do not survive the move.
+	const ids = (nodes: TreeNode[]): string[] => nodes.flatMap((n) => [n.id, ...ids(n.children)]);
+	assert.notDeepEqual(ids(bySlot.roots), ids(byGroup.roots));
+});
+
+test('a note chain is its path, which no reshuffle above it can change', () => {
+	const model = buildTreeModel(ungrouped([
+		entry({ path: 'Skoo/CS 360/hw1.md', values: { 'note.status': 'open' } }),
+	]), options({ nestBy: [status] }));
+
+	const note = find(model.roots, 'hw1');
+	assert.equal(note.chain, 'Skoo/CS 360/hw1.md');
+});

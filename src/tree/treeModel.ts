@@ -60,6 +60,18 @@ export interface TreeNode {
 	/** Which `nestBy` slot produced this container, or the nesting depth a note
 	 * landed at. Used by the renderer for indent guides. */
 	depth: number;
+	/**
+	 * What this row *is*, as the chain of values leading to it: `Skoo/CS 360`,
+	 * or a note's path.
+	 *
+	 * Distinct from `id`, which encodes level indices so that two levels
+	 * sharing a value cannot collide. That makes `id` correct for identity
+	 * within one render and useless for anything persisted: reordering the
+	 * hierarchy renumbers every level, so every id changes and every saved
+	 * key becomes both stale and liable to match the wrong row later. The
+	 * chain survives a reorder, and reads as itself in a `.base` file.
+	 */
+	chain: string;
 }
 
 export interface TreeModel {
@@ -301,6 +313,12 @@ function ensureContainer(
 		children: [],
 		noteCount: 0,
 		depth,
+		// The label, not the value: a split segment's `value` is already its
+		// full prefix (`Skoo/CS 360`), so appending that to the parent's chain
+		// would repeat every ancestor. A link-resolved container uses its path
+		// instead, since two notes in different folders can share a basename
+		// and their chains must not collide.
+		chain: chainFor(parent, segment),
 	};
 	if (segment.path !== undefined) container.path = segment.path;
 	byId.set(id, container);
@@ -348,6 +366,9 @@ function attachNote(
 		children: [],
 		noteCount: 1,
 		depth,
+		// A note's path already identifies it uniquely and survives any
+		// reshuffle of the levels above it, so it is its own chain.
+		chain: entry.file.path,
 	};
 	byId.set(node.id, node);
 	siblings.push(node);
@@ -470,6 +491,13 @@ function countNotes(nodes: TreeNode[]): number {
 		total += node.noteCount;
 	}
 	return total;
+}
+
+/** A row's persisted identity: the parent's chain plus this segment's own
+ * leaf name. Kept next to `ensureContainer` because the two have to agree. */
+function chainFor(parent: TreeNode | null, segment: ContainerSegment): string {
+	const own = segment.path ?? segment.label;
+	return parent === null ? own : `${parent.chain}/${own}`;
 }
 
 function basename(path: string): string {

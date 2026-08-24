@@ -39,6 +39,7 @@ const PURE_MODULES = [
 	'src/graph/treeSource.ts',
 	'src/graph/tidyTree.ts',
 	'src/tree/treeModel.ts',
+	'src/tree/treeLevels.ts',
 	'src/graph/linkProperties.ts',
 	'src/graph/types.ts',
 	'src/settings/settings.ts',

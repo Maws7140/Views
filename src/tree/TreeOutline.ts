@@ -35,15 +35,23 @@ export class TreeOutline {
 	private model: TreeModel = { roots: [], byId: new Map(), total: 0 };
 	private options: TreeOutlineOptions = { showCounts: true, expandToDepth: 2 };
 	private query = '';
-	/** Ids the user has explicitly toggled, and which way. A node absent from
-	 * this map follows `expandToDepth`, so changing that slider still moves
-	 * rows the user has never touched while leaving the ones they have. */
+	/**
+	 * Rows the user has explicitly toggled, and which way, keyed by
+	 * `TreeNode.chain` rather than by `id`.
+	 *
+	 * A row absent from this map follows `expandToDepth`, so moving that slider
+	 * still opens and closes rows nobody has touched while leaving the ones
+	 * they have. Keying on the chain is what lets the state survive a change to
+	 * the hierarchy: `id` carries level indices, so reordering the levels
+	 * renumbers everything and every saved key would go stale at once.
+	 */
 	private readonly toggled = new Map<string, boolean>();
 
 	constructor(
 		private readonly containerEl: HTMLElement,
 		private readonly app: App,
-		private readonly onToggle: (id: string, expanded: boolean) => void,
+		/** Called with a row's `chain`, not its `id`. The view persists it. */
+		private readonly onToggle: (chain: string, expanded: boolean) => void,
 	) {
 		this.containerEl.addClass('views-tree');
 
@@ -87,8 +95,8 @@ export class TreeOutline {
 		const walk = (nodes: TreeNode[]): void => {
 			for (const node of nodes) {
 				if (node.children.length > 0) {
-					this.toggled.set(node.id, expanded);
-					this.onToggle(node.id, expanded);
+					this.toggled.set(node.chain, expanded);
+					this.onToggle(node.chain, expanded);
 				}
 				walk(node.children);
 			}
@@ -102,7 +110,7 @@ export class TreeOutline {
 		// one opens regardless of what the user collapsed earlier. Collapsing
 		// state is remembered, not lost, and comes back on backspace.
 		if (this.query.trim().length > 0) return true;
-		return this.toggled.get(node.id) ?? node.depth < this.options.expandToDepth;
+		return this.toggled.get(node.chain) ?? node.depth < this.options.expandToDepth;
 	}
 
 	private render(): void {
@@ -154,8 +162,8 @@ export class TreeOutline {
 			setIcon(twisty, expanded ? 'lucide-chevron-down' : 'lucide-chevron-right');
 			twisty.addEventListener('click', (event) => {
 				event.stopPropagation();
-				this.toggled.set(node.id, !expanded);
-				this.onToggle(node.id, !expanded);
+				this.toggled.set(node.chain, !expanded);
+				this.onToggle(node.chain, !expanded);
 				this.render();
 			});
 		}

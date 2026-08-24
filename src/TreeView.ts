@@ -1,5 +1,6 @@
 import { BasesEntry, BasesPropertyId, BasesView, QueryController, ViewOption } from 'obsidian';
-import { buildTreeModel, type TreeGroup, type TreeNode } from './tree/treeModel';
+import { buildTreeModel, type TreeGroup, type TreeModel, type TreeNode } from './tree/treeModel';
+import { resolveNestLevels } from './tree/treeLevels';
 import { TreeOutline } from './tree/TreeOutline';
 import { iconViewOptions, readAppearanceConfig, resolveEntryIcons } from './collection/appearance';
 import { isPropertyColorEnabled } from './settings/settings';
@@ -39,6 +40,9 @@ export class TreeView extends BasesView {
 	type = TreeViewType;
 	private readonly outline: TreeOutline;
 	private readonly unsubscribeColors: () => void;
+	/** The tree as last built, kept only so `persistToggle` can prune saved
+	 * rows against what still exists. */
+	private lastModel: TreeModel | null = null;
 
 	constructor(
 		private readonly plugin: ViewsPlugin,
@@ -153,7 +157,7 @@ export class TreeView extends BasesView {
 		const typeProperty = this.config.getAsPropertyId('typeProperty');
 		const appearance = readAppearanceConfig(this.config);
 
-		const model = buildTreeModel(this.groups(), {
+		const model = this.lastModel = buildTreeModel(this.groups(), {
 			nestBy: this.nestByProperties(),
 			parentProperty: this.config.getAsPropertyId('parentProperty'),
 			splitNestedValues: this.config.get('splitNestedValues') !== false,
@@ -198,18 +202,34 @@ export class TreeView extends BasesView {
 			}));
 	}
 
-	/** The slot values, in order, blanks dropped so an empty slot 2 does not
-	 * stop slot 3 from contributing a level. Falls back to the legacy
-	 * `hierarchyProperty` key when no slot is set, so a base saved by the
-	 * previous build keeps the property it already names. */
+	/**
+	 * The nesting properties beneath the group level. The rule itself lives in
+	 * `./tree/treeLevels.ts`, pure and tested, because it is a rule about how
+	 * three config keys interact and that is exactly the thing that broke.
+	 */
 	private nestByProperties(): BasesPropertyId[] {
-		const slots = nestBySlotKeys()
-			.map((key) => this.config.getAsPropertyId(key))
-			.filter((value): value is BasesPropertyId => value !== null && String(value).length > 0);
-		if (slots.length > 0) return slots;
+		return resolveNestLevels({
+			groupProperty: this.groupProperty(),
+			slots: nestBySlotKeys().map((key) => this.config.getAsPropertyId(key)),
+			legacyProperty: this.config.getAsPropertyId('hierarchyProperty'),
+		});
+	}
 
-		const legacy = this.config.getAsPropertyId('hierarchyProperty');
-		return legacy !== null && String(legacy).length > 0 ? [legacy] : [];
+	/**
+	 * The property the base's own Group by names, or null.
+	 *
+	 * Read off the view config rather than inferred from `groupedData`, because
+	 * a group key tells you a value and not which property produced it, and the
+	 * dedupe in `resolveNestLevels` needs the property. Bases writes `groupBy`
+	 * as `{ property, direction }` and spells the property bare (`file.folder`,
+	 * `class`) where a view's own slots spell it `note.class`;
+	 * `resolveNestLevels` reconciles the two.
+	 */
+	private groupProperty(): BasesPropertyId | null {
+		const raw = this.config.get('groupBy');
+		if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null;
+		const property = (raw as { property?: unknown }).property;
+		return typeof property === 'string' && property.length > 0 ? (property as BasesPropertyId) : null;
 	}
 
 	/** Rows are coloured through the same assigner a table or a Kanban board
@@ -252,26 +272,74 @@ export class TreeView extends BasesView {
 		};
 	}
 
-	/** Expansion is persisted per view so a tree does not spring back open
-	 * every time the query re-runs. Stored as a flat map of node id to state,
-	 * only for rows the user actually toggled. */
+	/**
+	 * Expansion is persisted per view so a tree does not spring back open every
+	 * time the query re-runs, and it is stored the way `KanbanView` stores
+	 * collapsed swimlanes (`KanbanView.persistLaneCollapse`): plain string
+	 * arrays holding only what deviates from the default.
+	 *
+	 * Two arrays rather than one, because `Expand to depth` gives a row a
+	 * default in either direction: a shallow row can be explicitly closed and a
+	 * deep one explicitly opened, and a single "collapsed" list cannot say both.
+	 *
+	 * The previous shape was an object keyed by `TreeNode.id`, which encodes
+	 * level indices. Changing the hierarchy renumbered every level, so every
+	 * saved key went stale at once, nothing ever pruned them, and a later row
+	 * that happened to land on a matching id silently inherited a stranger's
+	 * collapse state. One view had accumulated 13 such keys.
+	 */
 	private restoredExpansion(): Map<string, boolean> {
-		const raw = this.config.get('expanded');
 		const restored = new Map<string, boolean>();
-		if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return restored;
-		for (const [id, value] of Object.entries(raw as Record<string, unknown>)) {
-			if (typeof value === 'boolean') restored.set(id, value);
-		}
+		for (const chain of this.storedList('collapsedRows')) restored.set(chain, false);
+		for (const chain of this.storedList('expandedRows')) restored.set(chain, true);
 		return restored;
 	}
 
-	private persistToggle(id: string, expanded: boolean): void {
-		const raw = this.config.get('expanded');
-		const current = raw !== null && typeof raw === 'object' && !Array.isArray(raw)
-			? { ...(raw as Record<string, boolean>) }
-			: {};
-		current[id] = expanded;
-		this.config.set('expanded', current);
+	private storedList(key: string): string[] {
+		const raw = this.config.get(key);
+		if (!Array.isArray(raw)) return [];
+		return raw.filter((value): value is string => typeof value === 'string');
+	}
+
+	/**
+	 * Records one toggle, then prunes both lists to rows the current model
+	 * actually has.
+	 *
+	 * Pruning on write is what stops the file growing without bound as a user
+	 * renames folders or reworks the hierarchy, and it is also what finally
+	 * clears the legacy `expanded` object: the first toggle after this ships
+	 * writes the new keys and blanks the old one.
+	 */
+	private persistToggle(chain: string, expanded: boolean): void {
+		const live = this.liveChains();
+		const collapsed = new Set(this.storedList('collapsedRows'));
+		const opened = new Set(this.storedList('expandedRows'));
+
+		collapsed.delete(chain);
+		opened.delete(chain);
+		if (expanded) opened.add(chain);
+		else collapsed.add(chain);
+
+		const keep = (chains: Set<string>): string[] => [...chains].filter((value) => live.has(value));
+		this.config.set('collapsedRows', keep(collapsed));
+		this.config.set('expandedRows', keep(opened));
+		if (this.config.get('expanded') !== null && this.config.get('expanded') !== undefined) {
+			this.config.set('expanded', null);
+		}
+	}
+
+	/** Every chain in the tree as last built, so pruning can tell a row that
+	 * still exists from one that does not. */
+	private liveChains(): Set<string> {
+		const chains = new Set<string>();
+		const walk = (nodes: TreeNode[]): void => {
+			for (const node of nodes) {
+				chains.add(node.chain);
+				walk(node.children);
+			}
+		};
+		walk(this.lastModel?.roots ?? []);
+		return chains;
 	}
 
 	/** A slider option arrives as whatever the config store holds; guard
