@@ -21,6 +21,25 @@ const NEST_SLOTS = 4;
 
 const DEFAULT_EXPAND_DEPTH = 2;
 
+/**
+ * The deepest generation `Expand to depth` can be asked to open.
+ *
+ * The first cut capped this at 6, which was a guess and a wrong one. Nesting
+ * is not bounded by the four `Then nest by` slots: `Split nested values` turns
+ * one `file.folder` into a row per path segment, so a five-deep folder is
+ * already five levels before a single slot is spent, and `Parent property`
+ * recurses without any bound at all. A vault here reaches depth 5 on folders
+ * alone, which put the note rows at 6 and left the slider unable to open the
+ * generation it was sitting on.
+ *
+ * Twenty is not a claim about how deep a tree can go, only about how deep one
+ * can be worth opening on arrival: past this the rows a slider would reveal are
+ * far more than a screen holds, and reaching them by clicking is the better
+ * interaction anyway. Asking for more than the tree has is harmless, since the
+ * outline compares against each row's own depth.
+ */
+const MAX_EXPAND_DEPTH = 20;
+
 export function nestBySlotKeys(): string[] {
 	return Array.from({ length: NEST_SLOTS }, (_, index) => `nestBy${index + 1}`);
 }
@@ -143,7 +162,7 @@ export class TreeView extends BasesView {
 						key: 'expandToDepth',
 						default: DEFAULT_EXPAND_DEPTH,
 						min: 0,
-						max: 6,
+						max: MAX_EXPAND_DEPTH,
 						step: 1,
 						instant: true,
 					},
