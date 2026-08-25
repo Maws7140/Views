@@ -2,6 +2,8 @@ import { BasesEntry, BasesPropertyId, BasesView, QueryController, ViewOption } f
 import { buildTreeModel, type TreeGroup, type TreeModel, type TreeNode } from './tree/treeModel';
 import { resolveNestLevels } from './tree/treeLevels';
 import { TreeOutline } from './tree/TreeOutline';
+import { TreeCanvas } from './tree/TreeCanvas';
+import type { TreeOrientation } from './graph/tidyTree';
 import { iconViewOptions, readAppearanceConfig, resolveEntryIcons } from './collection/appearance';
 import { isPropertyColorEnabled } from './settings/settings';
 import { resolveColorPalette, stableColor } from './table-colors/palettes';
@@ -20,6 +22,20 @@ export const TreeViewType = 'views-tree';
 const NEST_SLOTS = 4;
 
 const DEFAULT_EXPAND_DEPTH = 2;
+
+/**
+ * How the same tree is drawn.
+ *
+ * Modes of one view rather than two registered views, which is the opposite
+ * call from Tree versus Graph. Tree and Graph are separate because they answer
+ * different questions; outline and diagram answer the same question about the
+ * same `TreeModel`, off the same `Then nest by` slots and the same collapse
+ * state. Splitting them would mean configuring a hierarchy twice to see it two
+ * ways.
+ */
+export type TreeLayoutMode = 'outline' | 'diagram';
+
+const DEFAULT_LAYOUT_MODE: TreeLayoutMode = 'outline';
 
 /**
  * The deepest generation `Expand to depth` can be asked to open.
@@ -57,19 +73,31 @@ export function nestBySlotKeys(): string[] {
  */
 export class TreeView extends BasesView {
 	type = TreeViewType;
-	private readonly outline: TreeOutline;
 	private readonly unsubscribeColors: () => void;
+	/** Whichever renderer the Layout option currently names. Only one exists at
+	 * a time: the other's DOM is torn down rather than hidden, so a canvas is
+	 * not sitting behind an outline observing resizes it will never draw for. */
+	private outline: TreeOutline | null = null;
+	private canvas: TreeCanvas | null = null;
+	private renderedMode: TreeLayoutMode | null = null;
 	/** The tree as last built, kept only so `persistToggle` can prune saved
 	 * rows against what still exists. */
 	private lastModel: TreeModel | null = null;
+	/**
+	 * Collapse state, owned here and handed to whichever renderer is live, so
+	 * switching modes preserves the shape rather than resetting it. Seeded from
+	 * the saved arrays on first render and written back through
+	 * `persistToggle`.
+	 */
+	private readonly toggled = new Map<string, boolean>();
+	private toggledSeeded = false;
 
 	constructor(
 		private readonly plugin: ViewsPlugin,
 		controller: QueryController,
-		containerEl: HTMLElement,
+		private readonly containerEl: HTMLElement,
 	) {
 		super(controller);
-		this.outline = new TreeOutline(containerEl, this.app, (id, expanded) => this.persistToggle(id, expanded));
 		// A colour pack, an override, or the enabled-properties list can change
 		// without the query itself changing, so the render needs its own nudge.
 		this.unsubscribeColors = this.plugin.onPropertyColorSettingsChanged(() => this.onDataUpdated());
@@ -77,16 +105,52 @@ export class TreeView extends BasesView {
 
 	onunload(): void {
 		this.unsubscribeColors();
-		this.outline.destroy();
+		this.teardownRenderer();
 	}
 
 	onResize(): void {
-		// The outline is ordinary flow layout and reflows itself. Nothing to do
-		// here, unlike the canvas views which have to resize a backing store.
+		// The outline is ordinary flow layout and reflows itself; the canvas
+		// watches its own host through a `ResizeObserver`. Neither needs a
+		// nudge from here.
 	}
 
 	static getViewOptions(): ViewOption[] {
 		return [
+			{
+				displayName: 'Layout',
+				type: 'group',
+				items: [
+					{
+						// First option in the pane because it decides what the
+						// rest of them look like on screen, not because it
+						// changes what they mean: every hierarchy option below
+						// feeds both renderers unchanged.
+						displayName: 'Layout',
+						type: 'dropdown',
+						key: 'layoutMode',
+						default: DEFAULT_LAYOUT_MODE,
+						options: {
+							outline: 'Outline',
+							diagram: 'Diagram',
+						},
+					},
+					{
+						// Only the diagram reads this. Left visible in outline
+						// mode rather than hidden, because Bases builds the
+						// options pane once from a static list and a control
+						// that appears and vanishes as a sibling changes reads
+						// as a glitch.
+						displayName: 'Diagram direction',
+						type: 'dropdown',
+						key: 'treeOrientation',
+						default: 'leftToRight',
+						options: {
+							leftToRight: 'Left to right',
+							topDown: 'Top down',
+						},
+					},
+				],
+			},
 			{
 				displayName: 'Hierarchy',
 				type: 'group',
@@ -188,15 +252,81 @@ export class TreeView extends BasesView {
 			),
 		});
 
-		const colorFor = this.colorResolver(entries, typeProperty);
-		const iconsFor = this.iconResolver(entries, appearance);
+		this.seedToggled();
+		const showCounts = this.config.get('showCounts') !== false;
+		const expandToDepth = this.numberOption('expandToDepth', DEFAULT_EXPAND_DEPTH);
+		const colorOf = this.colorResolver(entries, typeProperty);
+		const iconsOf = this.iconResolver(entries, appearance);
 
-		this.outline.update(model, {
-			showCounts: this.config.get('showCounts') !== false,
-			expandToDepth: this.numberOption('expandToDepth', DEFAULT_EXPAND_DEPTH),
-			colorOf: colorFor,
-			iconsOf: iconsFor,
-		}, this.restoredExpansion());
+		const mode = this.layoutMode();
+		const switched = this.ensureRenderer(mode);
+
+		if (this.outline !== null) {
+			this.outline.update(model, { showCounts, expandToDepth, colorOf, iconsOf, toggled: this.toggled });
+		}
+		if (this.canvas !== null) {
+			// A mode switch arrives with no framing of its own, so the diagram
+			// is allowed one fit; afterwards the user's pan and zoom stand
+			// through every re-query.
+			if (switched) this.canvas.resetView();
+			this.canvas.update(model, {
+				orientation: this.orientation(),
+				showCounts,
+				expandToDepth,
+				toggled: this.toggled,
+				colorOf,
+				iconsOf,
+			});
+		}
+	}
+
+	private layoutMode(): TreeLayoutMode {
+		return this.config.get('layoutMode') === 'diagram' ? 'diagram' : DEFAULT_LAYOUT_MODE;
+	}
+
+	/** `topDown` is the org-chart reference, `leftToRight` the planning map.
+	 * The key predates this option: an earlier build wrote it and then stopped
+	 * reading it, so bases already carrying one keep the value they had. */
+	private orientation(): TreeOrientation {
+		return this.config.get('treeOrientation') === 'topDown' ? 'topDown' : 'leftToRight';
+	}
+
+	/**
+	 * Builds the renderer for `mode` if it is not the one already standing, and
+	 * reports whether it changed.
+	 *
+	 * Torn down rather than hidden. A hidden canvas keeps a `ResizeObserver`
+	 * and a device-pixel-ratio media query alive to schedule frames nobody
+	 * sees, and both renderers write into the same container element, so the
+	 * outline's rows would sit in the DOM underneath it.
+	 */
+	private ensureRenderer(mode: TreeLayoutMode): boolean {
+		if (this.renderedMode === mode) return false;
+		this.teardownRenderer();
+		if (mode === 'diagram') {
+			this.canvas = new TreeCanvas(this.containerEl, this.app, (chain, expanded) => this.persistToggle(chain, expanded));
+		} else {
+			this.outline = new TreeOutline(this.containerEl, this.app, (chain, expanded) => this.persistToggle(chain, expanded));
+		}
+		this.renderedMode = mode;
+		return true;
+	}
+
+	private teardownRenderer(): void {
+		this.outline?.destroy();
+		this.outline = null;
+		this.canvas?.destroy();
+		this.canvas = null;
+		this.renderedMode = null;
+	}
+
+	/** The saved arrays are read once, not on every update: after the first
+	 * render the in-memory map is the live state, and re-seeding would undo a
+	 * toggle whose write has not landed back in the config yet. */
+	private seedToggled(): void {
+		if (this.toggledSeeded) return;
+		this.toggledSeeded = true;
+		for (const [chain, expanded] of this.restoredExpansion()) this.toggled.set(chain, expanded);
 	}
 
 	/**

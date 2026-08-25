@@ -1,4 +1,5 @@
 import { App, setIcon } from 'obsidian';
+import { isExpanded } from './treeLayout';
 import { filterTree, type TreeModel, type TreeNode } from './treeModel';
 
 /**
@@ -26,15 +27,6 @@ export interface TreeOutlineOptions {
 	colorOf?: (node: TreeNode) => string | null;
 	/** Ordered icon candidates for a row, from the plugin's one resolver. */
 	iconsOf?: (node: TreeNode) => string[];
-}
-
-export class TreeOutline {
-	private readonly listEl: HTMLElement;
-	private readonly filterEl: HTMLInputElement;
-	private readonly emptyEl: HTMLElement;
-	private model: TreeModel = { roots: [], byId: new Map(), total: 0 };
-	private options: TreeOutlineOptions = { showCounts: true, expandToDepth: 2 };
-	private query = '';
 	/**
 	 * Rows the user has explicitly toggled, and which way, keyed by
 	 * `TreeNode.chain` rather than by `id`.
@@ -44,8 +36,21 @@ export class TreeOutline {
 	 * they have. Keying on the chain is what lets the state survive a change to
 	 * the hierarchy: `id` carries level indices, so reordering the levels
 	 * renumbers everything and every saved key would go stale at once.
+	 *
+	 * Owned by the view rather than by this renderer, and handed to the diagram
+	 * renderer as the same object, so a subtree shut in one mode is shut in the
+	 * other.
 	 */
-	private readonly toggled = new Map<string, boolean>();
+	toggled: Map<string, boolean>;
+}
+
+export class TreeOutline {
+	private readonly listEl: HTMLElement;
+	private readonly filterEl: HTMLInputElement;
+	private readonly emptyEl: HTMLElement;
+	private model: TreeModel = { roots: [], byId: new Map(), total: 0 };
+	private options: TreeOutlineOptions = { showCounts: true, expandToDepth: 2, toggled: new Map() };
+	private query = '';
 
 	constructor(
 		private readonly containerEl: HTMLElement,
@@ -77,12 +82,9 @@ export class TreeOutline {
 		this.emptyEl.hide();
 	}
 
-	update(model: TreeModel, options: TreeOutlineOptions, restored: Map<string, boolean>): void {
+	update(model: TreeModel, options: TreeOutlineOptions): void {
 		this.model = model;
 		this.options = options;
-		if (this.toggled.size === 0 && restored.size > 0) {
-			for (const [id, expanded] of restored) this.toggled.set(id, expanded);
-		}
 		this.render();
 	}
 
@@ -95,7 +97,7 @@ export class TreeOutline {
 		const walk = (nodes: TreeNode[]): void => {
 			for (const node of nodes) {
 				if (node.children.length > 0) {
-					this.toggled.set(node.chain, expanded);
+					this.options.toggled.set(node.chain, expanded);
 					this.onToggle(node.chain, expanded);
 				}
 				walk(node.children);
@@ -110,7 +112,9 @@ export class TreeOutline {
 		// one opens regardless of what the user collapsed earlier. Collapsing
 		// state is remembered, not lost, and comes back on backspace.
 		if (this.query.trim().length > 0) return true;
-		return this.toggled.get(node.chain) ?? node.depth < this.options.expandToDepth;
+		// The rule itself lives in `treeLayout.ts` so the diagram cannot drift
+		// from it: the two modes must agree on which subtrees are open.
+		return isExpanded(node, this.options);
 	}
 
 	private render(): void {
@@ -162,7 +166,7 @@ export class TreeOutline {
 			setIcon(twisty, expanded ? 'lucide-chevron-down' : 'lucide-chevron-right');
 			twisty.addEventListener('click', (event) => {
 				event.stopPropagation();
-				this.toggled.set(node.chain, !expanded);
+				this.options.toggled.set(node.chain, !expanded);
 				this.onToggle(node.chain, !expanded);
 				this.render();
 			});

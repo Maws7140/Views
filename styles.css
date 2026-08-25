@@ -3658,3 +3658,26 @@
   font-size: var(--font-ui-small);
   text-align: center;
 }
+
+/* Tree view, diagram mode. The canvas fills the pane and does its own
+   painting; everything visual about a tile lives in TreeCanvas.ts, since a
+   canvas cannot be styled from here. What is left is the host box and the
+   cursor, which is the same shape .views-graph-host takes. */
+.views-tree-canvas {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 320px;
+  overflow: hidden;
+}
+
+.views-tree-canvas .views-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+
+.views-tree-canvas .views-canvas:active {
+  cursor: grabbing;
+}
